@@ -2,10 +2,57 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { cellToWorld } from './scene.js';
+import { makeRng } from '../sim/battle.js';
 
 const DIR = `${import.meta.env.BASE_URL}models/units/`;
 const HEIGHT = 1.3; // minis stand a bit taller than a cell is wide, so they read on a phone
 const FADE = 0.15;
+export const BASE_H = 0.09; // minis stand on this
+
+// Round bases like painted tabletop figures: a bevelled disc with a painted rim
+// in the side's colour, and a flocked top (grass for heroes, ash for the dead).
+const BASE_STYLE = {
+  player: { rim: 0x24395a, flock: ['#4f6a2c', '#6d8a38', '#3a4f22', '#8a7a4a'] },
+  enemy: { rim: 0x5a1a17, flock: ['#5a5650', '#3e3a36', '#6e665a', '#2c2824'] },
+};
+let baseParts = null;
+function flockTexture(colors, seed) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const rng = makeRng(seed);
+  g.fillStyle = colors[0];
+  g.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 1400; i++) {
+    g.fillStyle = colors[Math.floor(rng() * colors.length)];
+    g.fillRect(rng() * 128, rng() * 128, 1 + rng() * 3, 1 + rng() * 3);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+function makeBase(side) {
+  if (!baseParts) {
+    const R = 0.44;
+    // Side profile, from the centre bottom out and up over a rounded top edge.
+    const pts = [[0, 0], [R, 0], [R, BASE_H * 0.55], [R - 0.015, BASE_H * 0.8], [R - 0.04, BASE_H * 0.97], [R - 0.06, BASE_H]]
+      .map(([x, y]) => new THREE.Vector2(x, y));
+    baseParts = { rimGeo: new THREE.LatheGeometry(pts, 40), topGeo: new THREE.CircleGeometry(R - 0.06, 40).rotateX(-Math.PI / 2).translate(0, BASE_H + 0.001, 0) };
+    for (const [k, st] of Object.entries(BASE_STYLE)) {
+      baseParts[k] = {
+        rim: new THREE.MeshStandardMaterial({ color: st.rim, roughness: 0.35 }),
+        top: new THREE.MeshStandardMaterial({ map: flockTexture(st.flock, k === 'player' ? 21 : 22), roughness: 0.95 }),
+      };
+    }
+  }
+  const m = baseParts[side];
+  const g = new THREE.Group();
+  const rim = new THREE.Mesh(baseParts.rimGeo, m.rim);
+  const top = new THREE.Mesh(baseParts.topGeo, m.top);
+  rim.castShadow = rim.receiveShadow = top.receiveShadow = true;
+  g.add(rim, top);
+  return g;
+}
 
 // Which model file each tuning unit key uses. Add the rest as the roster grows.
 export const MODEL_FILES = {
@@ -81,7 +128,8 @@ export function createUnits(scene) {
     const height = HEIGHT * (star === 2 ? STAR2_SCALE : 1);
     model.scale.setScalar(height / (box.max.y - box.min.y));
     const group = new THREE.Group();
-    group.add(model);
+    model.position.y = BASE_H;
+    group.add(makeBase(side), model);
     const tags = new THREE.Group();
     if (star === 2) {
       const badge = tagSprite('★★', { size: 72, width: 200 });

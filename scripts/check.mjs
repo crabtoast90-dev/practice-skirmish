@@ -3,7 +3,7 @@
 // Also replays the same fight in Node and fails if the browser's sim disagrees.
 import { build, preview } from 'vite';
 import { chromium } from 'playwright-core';
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { simulate } from '../src/sim/battle.js';
 import { TUNING } from '../src/tuning.js';
@@ -26,7 +26,8 @@ const log = [];
 
 mkdirSync(OUT, { recursive: true });
 // Keep the newest KEEP runs (timestamped names sort oldest-first); delete the rest.
-for (const old of readdirSync(RUNS).sort().slice(0, -KEEP)) rmSync(join(RUNS, old), { recursive: true, force: true });
+// Only timestamped run folders rotate; the look sheet files at the top level stay.
+for (const old of readdirSync(RUNS).filter((f) => /^\d{4}-/.test(f)).sort().slice(0, -KEEP)) rmSync(join(RUNS, old), { recursive: true, force: true });
 
 let server;
 let base = URL_ARG;
@@ -91,6 +92,41 @@ const shot = (page, name, step) => page.screenshot({ path: join(OUT, `${name}-${
 const state = (page) => page.evaluate(() => window.__game.state());
 const advance = (page, ms) => page.evaluate((t) => window.__game.advance(t), ms);
 const summaries = [];
+const lookFiles = {};
+
+// The look sheet: the 3v3 mid-fight from three camera angles (laptop), and the phone's
+// play view. The test clock is frozen, so all three show the same moment.
+async function lookShots(page, name) {
+  if (name === 'phone') {
+    await shot(page, name, 'look');
+    lookFiles.phone = join(OUT, `${name}-look.png`);
+    return;
+  }
+  for (const v of ['game', 'low', 'lamp']) {
+    await page.evaluate((x) => window.__game.setView(x), v);
+    await shot(page, name, `look-${v}`);
+    lookFiles[v] = join(OUT, `${name}-look-${v}.png`);
+  }
+  await page.evaluate(() => window.__game.setView('game'));
+}
+
+// Lay the three laptop angles side by side with captions, in a blank page.
+async function composeLookSheet() {
+  const img = (f) => `data:image/png;base64,${readFileSync(f).toString('base64')}`;
+  const tile = (k, label) => `<figure><img src="${img(lookFiles[k])}"><figcaption>${label}</figcaption></figure>`;
+  const context = await browser.newContext({ viewport: { width: 1920, height: 400 } });
+  const page = await context.newPage();
+  await page.setContent(`<style>body{margin:0;background:#0b0d13;display:flex;gap:8px;padding:8px;font:14px Georgia,serif;color:#ffe2b0}
+    figure{margin:0;flex:1}img{width:100%;display:block;border-radius:4px}figcaption{padding:4px 2px}</style>
+    ${tile('game', 'Play view (laptop)')}${tile('low', 'Low, front-right')}${tile('lamp', 'From the right, towards the lamp')}`);
+  await page.waitForFunction(() => [...document.images].every((i) => i.complete));
+  const sheet = join(RUNS, 'look-compare.png');
+  await page.screenshot({ path: sheet, fullPage: true });
+  copyFileSync(sheet, join(OUT, 'look-compare.png'));
+  copyFileSync(lookFiles.phone, join(RUNS, 'look-phone.png'));
+  await context.close();
+  summaries.push(`look sheet: ${sheet} (laptop, 3 angles) and ${join(RUNS, 'look-phone.png')} (phone)`);
+}
 
 // Browser vs Node: the fight the browser played must match the same fight simulated here.
 function matchNode(name, end) {
@@ -194,6 +230,9 @@ async function fightRun(page, name, click) {
   await advance(page, 300);
   const setup = await state(page);
   const expectMinis = setup.board.length + 1;
+  // Framing: the whole board frame (and far minis' heads) must be on screen.
+  const f = setup.frame;
+  if (f.x0 < -1 || f.x1 > 1 || f.y0 < -1 || f.y1 > 1) failures.push(`[${name}] board clips the screen edge (x ${f.x0.toFixed(2)}..${f.x1.toFixed(2)}, y ${f.y0.toFixed(2)}..${f.y1.toFixed(2)})`);
   await click('#fight');
   await advance(page, 100);
   const early = await state(page);
@@ -233,6 +272,7 @@ async function spreadRun(page, name, click) {
     closest = Math.min(closest, closestPair(s.battle.units));
   }
   await shot(page, name, '6-3v3-mid-fight');
+  await lookShots(page, name);
   const mid = await state(page);
   const knights = mid.battle.units.filter((u) => u.side === 'player' && u.hp > 0);
   const columns = new Set(knights.map((u) => Math.round(u.x)));
@@ -256,6 +296,9 @@ async function fullRun(page, name, click, tapAt) {
 summaries.push(`shop seed ${SEED} (first seed whose round-1 shop offers two Knights)`);
 await run('laptop', { viewport: { width: 1280, height: 720 } }, (page, name) => fullRun(page, name, (sel) => page.click(sel), (x, y) => page.mouse.click(x, y)));
 await run('phone', { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }, (page, name) => fullRun(page, name, (sel) => page.tap(sel), (x, y) => page.touchscreen.tap(x, y)));
+
+if (lookFiles.game && lookFiles.phone) await composeLookSheet();
+else failures.push('look sheet: missing shots');
 
 await browser.close();
 await server?.close();

@@ -40,7 +40,7 @@ Each item can be pasted alone into a fresh builder session. Every session reads 
 
 ## Lane D: the look (ONE session owns all of it)
 
-- [ ] **D1. Tabletop diorama look.** Any time. Lighting first: warm lamp pool from one side with a visible lamp (simple model or Meshy), soft long shadows, a cool dim room; the board as a real wooden game board (bevelled frame, inlaid grid, slightly different wood for each half); round mini bases like painted figures; tilt-shift and grade tuned so it reads as miniatures on laptop and phone; HP bars styled to match; on phone the near board corners clip slightly, fix the framing. Files: `src/view/scene.js`, `src/view/post.js`, `src/style.css`, base meshes in `src/view/units.js` (coordinate with C1 if running in parallel), `CREDITS.md`.
+- [x] **D1. Tabletop diorama look.** (merged 2026-10-17) Any time. Lighting first: warm lamp pool from one side with a visible lamp (simple model or Meshy), soft long shadows, a cool dim room; the board as a real wooden game board (bevelled frame, inlaid grid, slightly different wood for each half); round mini bases like painted figures; tilt-shift and grade tuned so it reads as miniatures on laptop and phone; HP bars styled to match; on phone the near board corners clip slightly, fix the framing. Files: `src/view/scene.js`, `src/view/post.js`, `src/style.css`, base meshes in `src/view/units.js` (coordinate with C1 if running in parallel), `CREDITS.md`.
   *Done when:* the check saves a 3-angle look sheet (`check-output/look-compare.png`) for laptop and a phone shot, and you describe each in one line; the user gives a look score.
 
 ## Ship
