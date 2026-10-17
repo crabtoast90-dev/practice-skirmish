@@ -41,6 +41,7 @@ const VIEWS = {
   game: { elevation: phone ? 56 : 50, yaw: 0 },
   low: { elevation: 24, yaw: 30, zoom: 0.72, focus: new THREE.Vector3(0, 0.6, 0.4) },
   lamp: { elevation: 34, yaw: 100, zoom: 0.95, focus: new THREE.Vector3(-1.2, 0.6, -0.4) },
+  lineup: { elevation: 34, yaw: 0, zoom: 0.5, focus: new THREE.Vector3(0, 0.6, -0.1) }, // close on the two middle rows
 };
 let view = 'game';
 
@@ -131,7 +132,8 @@ function glideCamera(dt) {
 function applyView() {
   const v = VIEWS[view];
   if (view === 'game') placeCamera(gameFrame.target, v.elevation, v.yaw, gameFrame.d);
-  else placeCamera(v.focus, v.elevation, v.yaw, gameFrame.d * v.zoom);
+  // The line-up is five minis wide, so a narrow phone screen backs off further.
+  else placeCamera(v.focus, v.elevation, v.yaw, gameFrame.d * v.zoom * (view === 'lineup' ? THREE.MathUtils.clamp(1.3 / camera.aspect, 1, 2.2) : 1));
   // Keep the tilt-shift's sharp band on the board's middle (or the view's focus).
   const f = (view === 'game' ? new THREE.Vector3(0, 0.6, -0.3) : v.focus).clone().project(camera);
   post.setFocus((f.y + 1) / 2);
@@ -176,7 +178,7 @@ const shopUI = createShopUI({
 
 const fightBtn = document.getElementById('fight');
 const banner = document.getElementById('banner');
-let screen = 'loading'; // loading | setup | battle | result
+let screen = 'loading'; // loading | setup | battle | result | lineup (test hook)
 let loaded = false;
 let result = null;
 
@@ -255,6 +257,7 @@ function state() {
     time: Math.round(clock.time * 100) / 100,
     minis: units.count,
     round: shop.state.round,
+    models: units.list(),
     gold: shop.state.gold,
     offers: [...shop.state.offers],
     held: shop.state.held && { ...shop.state.held },
@@ -280,6 +283,7 @@ function stateText() {
     `round ${s.round}; gold: ${s.gold}; offers: ${s.offers.map((u) => (u ? `${u} (${TUNING.units[u].cost}g)` : 'sold')).join(', ')}; reroll ${TUNING.economy.rerollCost}g`,
     `hand: ${s.held ? `${s.held.unit} ${s.held.star}-star` : 'empty'}${s.lastMerge ? `; just merged a 2-star ${s.lastMerge.unit}` : ''}`,
     `board: player ${s.board.map((e) => `${e.unit}${e.star === 2 ? '★★' : ''}@r${e.row}c${e.col}`).join(', ') || 'empty'} vs enemy ${ENEMY_BOARD.map((e) => `${e.unit}@r${e.row}c${e.col}`).join(', ')}; ${s.minis} minis on the board`,
+    `models: ${s.models.map((m) => `${m.unit}=${m.model} (${m.animation})`).join(', ') || 'none'}`,
     b ? `battle: t=${b.t}s; ${b.units.map((u) => `${u.unit} ${u.hp}hp ${u.animation} @${u.x},${u.y}`).join('; ')}` : 'battle: not running',
     s.sim ? `sim decided: ${s.sim.winner} in ${s.sim.duration}s` : 'sim decided: nothing yet',
     s.result ? `result: ${s.result.winner}, survivors ${s.result.survivors.map((x) => `${x.unit} ${x.hp}hp`).join(', ') || 'none'}` : 'result: none',
@@ -301,7 +305,22 @@ window.__game = {
     toSetup();
     return state();
   },
-  // Look-sheet hook: switch camera to 'game', 'low' or 'lamp' and draw a frame.
+  // Line-up hook: every hero on your front row and every skeleton on theirs,
+  // all facing the camera with name plates, so one shot shows all nine minis.
+  // setBoards() goes back to the normal board.
+  lineup() {
+    playback.stop();
+    shopUI.render(shop, false);
+    banner.hidden = true;
+    screen = 'lineup';
+    const heroes = Object.keys(TUNING.units);
+    const dead = Object.keys(TUNING.enemies);
+    heroes.forEach((k, i) => units.spawn(k, 'player', i + (5 - heroes.length) / 2, globalRow('player', 0), { label: TUNING.units[k].name }).group.rotation.y = 0);
+    dead.forEach((k, i) => units.spawn(k, 'enemy', i + (5 - dead.length) / 2, globalRow('enemy', 0), { label: TUNING.enemies[k].name.replace('Skeleton ', '') }).group.rotation.y = 0);
+    render();
+    return state();
+  },
+  // Look-sheet hook: switch camera to 'game', 'low', 'lamp' or 'lineup' and draw a frame.
   setView(name) {
     if (!VIEWS[name]) throw new Error(`unknown view ${name}`);
     view = name;

@@ -291,11 +291,29 @@ async function spreadRun(page, name, click) {
   matchNode(`${name} 3v3`, end);
 }
 
+// Line-up: all nine minis standing on the board facing the camera, each with
+// its own model file; then back to a normal board.
+async function lineupRun(page, name) {
+  const s = await page.evaluate(() => window.__game.lineup());
+  const want = [...Object.keys(TUNING.units), ...Object.keys(TUNING.enemies)];
+  const files = new Set(s.models.map((m) => m.model));
+  if (s.screen !== 'lineup' || s.minis !== want.length) failures.push(`[${name}] line-up: expected ${want.length} minis, got ${s.minis} (screen ${s.screen})`);
+  if (files.size !== want.length) failures.push(`[${name}] line-up: ${files.size} different model files for ${want.length} minis`);
+  for (const u of want) if (!s.models.some((m) => m.unit === u)) failures.push(`[${name}] line-up: no ${u} on the board`);
+  await advance(page, 400);
+  await shot(page, name, '7-lineup');
+  await page.evaluate(() => window.__game.setView('lineup'));
+  await shot(page, name, '7-lineup-close');
+  await page.evaluate(() => window.__game.setView('game'));
+  summaries.push(`## ${name} line-up\n${await page.evaluate(() => window.__game.stateText())}`);
+}
+
 async function fullRun(page, name, click, tapAt) {
   await shopRun(page, name, click, tapAt);
   await fightRun(page, name, click);
   await thirdUnit(page, name, click, tapAt);
   await spreadRun(page, name, click);
+  await lineupRun(page, name);
 }
 
 summaries.push(`shop seed ${SEED} (first seed whose round-1 shop offers two Knights)`);

@@ -54,26 +54,67 @@ function makeBase(side) {
   return g;
 }
 
-// Which model file each tuning unit key uses. Add the rest as the roster grows.
-export const MODEL_FILES = {
-  knight: 'Knight.glb',
-  skeletonWarrior: 'Skeleton_Warrior.glb',
-};
-
-// Animation names in the shared KayKit Rig_Medium files.
-const CLIPS = {
+// Every mini: its model file, the clips it plays (which KayKit Rig_Medium file,
+// which clip) and what it holds in each hand (files in weapons/). Clips not
+// listed fall back to DEFAULT_CLIPS.
+const DEFAULT_CLIPS = {
   idle: ['general', 'Idle_A'],
   walk: ['movement', 'Walking_A'],
-  attack: ['melee', 'Melee_1H_Attack_Chop'],
-  special: ['melee', 'Melee_Block'],
   hit: ['general', 'Hit_A'],
   death: ['general', 'Death_A'],
 };
+// The dead shuffle and slump like skeletons, not like the heroes.
+const SKELETON_CLIPS = {
+  idle: ['special', 'Skeletons_Idle'],
+  walk: ['special', 'Skeletons_Walking'],
+  death: ['special', 'Skeletons_Death'],
+};
+export const MINIS = {
+  knight: {
+    file: 'Knight.glb', hold: { r: 'sword_1handed', l: 'shield_badge_color' },
+    clips: { attack: ['melee', 'Melee_1H_Attack_Chop'], special: ['melee', 'Melee_Block'] },
+  },
+  barbarian: {
+    file: 'Barbarian.glb', hold: { r: 'axe_2handed' },
+    clips: { idle: ['melee', 'Melee_2H_Idle'], attack: ['melee', 'Melee_2H_Attack_Chop'], special: ['melee', 'Melee_2H_Attack_Spin'] },
+  },
+  rogue: {
+    file: 'Rogue.glb', hold: { r: 'dagger', l: 'dagger' },
+    clips: { attack: ['melee', 'Melee_Dualwield_Attack_Slice'], special: ['melee', 'Melee_1H_Attack_Jump_Chop'] },
+  },
+  mage: {
+    file: 'Mage.glb', hold: { r: 'staff' },
+    clips: { attack: ['ranged', 'Ranged_Magic_Shoot'], special: ['ranged', 'Ranged_Magic_Spellcasting_Long'] },
+  },
+  ranger: {
+    file: 'Ranger.glb', hold: { l: 'bow_withString' },
+    clips: { idle: ['ranged', 'Ranged_Bow_Idle'], attack: ['ranged', 'Ranged_Bow_Release'], special: ['ranged', 'Ranged_Bow_Release_Up'] },
+  },
+  skeletonWarrior: {
+    file: 'Skeleton_Warrior.glb', hold: { r: 'Skeleton_Blade', l: 'Skeleton_Shield_Large_A' },
+    clips: { ...SKELETON_CLIPS, attack: ['melee', 'Melee_1H_Attack_Chop'], special: ['melee', 'Melee_1H_Attack_Jump_Chop'] },
+  },
+  skeletonRogue: {
+    file: 'Skeleton_Rogue.glb', hold: { r: 'Skeleton_Blade', l: 'Skeleton_Blade' },
+    clips: { ...SKELETON_CLIPS, attack: ['melee', 'Melee_Dualwield_Attack_Chop'], special: ['melee', 'Melee_Dualwield_Attack_Stab'] },
+  },
+  skeletonMage: {
+    file: 'Skeleton_Mage.glb', hold: { r: 'wand' },
+    clips: { ...SKELETON_CLIPS, attack: ['ranged', 'Ranged_Magic_Shoot'], special: ['ranged', 'Ranged_Magic_Raise'] },
+  },
+  skeletonMinion: {
+    file: 'Skeleton_Minion.glb', hold: { r: 'Skeleton_Axe' },
+    clips: { ...SKELETON_CLIPS, attack: ['melee', 'Melee_1H_Attack_Slice_Diagonal'], special: ['special', 'Skeletons_Taunt'] },
+  },
+};
+const RIG_FILES = {
+  general: 'Rig_Medium_General.glb',
+  movement: 'Rig_Medium_MovementBasic.glb',
+  melee: 'Rig_Medium_CombatMelee.glb',
+  ranged: 'Rig_Medium_CombatRanged.glb',
+  special: 'Rig_Medium_Special.glb',
+};
 const ONCE = new Set(['attack', 'special', 'hit', 'death']);
-
-// Until every mini has its own model (PLAN.md C1), the others borrow the
-// Knight's, tinted and name-tagged so you can tell them apart on the board.
-const STAND_IN = { barbarian: 0xd9774a, rogue: 0x6f8f5a, mage: 0x7d6ad8, ranger: 0x4f9a8a };
 const STAR2_SCALE = 1.15;
 
 function tagSprite(text, { color = '#ffd76a', size = 64, width = 256 } = {}) {
@@ -104,27 +145,28 @@ export function createUnits(scene) {
   const rigs = {};
   const live = [];
 
+  const weapons = {};
   const ready = Promise.all([
-    load('Rig_Medium_General.glb').then((g) => (rigs.general = g)),
-    load('Rig_Medium_MovementBasic.glb').then((g) => (rigs.movement = g)),
-    load('Rig_Medium_CombatMelee.glb').then((g) => (rigs.melee = g)),
-    ...Object.entries(MODEL_FILES).map(([k, f]) => load(f).then((g) => (models[k] = g.scene))),
+    ...Object.entries(RIG_FILES).map(([k, f]) => load(f).then((g) => (rigs[k] = g.animations))),
+    ...Object.entries(MINIS).map(([k, m]) => load(m.file).then((g) => (models[k] = g.scene))),
+    ...[...new Set(Object.values(MINIS).flatMap((m) => Object.values(m.hold)))]
+      .map((w) => load(`weapons/${w}.gltf`).then((g) => (weapons[w] = g.scene))),
   ]);
 
   // star: 2 = a merged 2-star (a touch bigger, with a star badge overhead).
-  function spawn(unit, side, x, y, { star = 1 } = {}) {
-    const standIn = !models[unit];
-    const model = cloneSkinned(models[unit] ?? models.knight);
+  // label: a name plate at the mini's feet (the line-up uses it).
+  function spawn(unit, side, x, y, { star = 1, label } = {}) {
+    const mini = MINIS[unit];
+    if (!mini) throw new Error(`no mini for unit "${unit}" (add it to MINIS in units.js)`);
+    const model = cloneSkinned(models[unit]);
+    const box = new THREE.Box3().setFromObject(model); // measured before weapons go in hand
+    // three.js drops the dot from bone names: "handslot.r" loads as "handslotr".
+    for (const [hand, w] of Object.entries(mini.hold)) model.getObjectByName(`handslot${hand}`).add(weapons[w].clone());
     model.traverse((o) => {
       if (!o.isMesh) return;
       o.castShadow = true;
       o.receiveShadow = true;
-      if (standIn && STAND_IN[unit]) {
-        o.material = o.material.clone();
-        o.material.color.multiply(new THREE.Color(STAND_IN[unit]).lerp(new THREE.Color(0xffffff), 0.25));
-      }
     });
-    const box = new THREE.Box3().setFromObject(model);
     const height = HEIGHT * (star === 2 ? STAR2_SCALE : 1);
     model.scale.setScalar(height / (box.max.y - box.min.y));
     const group = new THREE.Group();
@@ -137,8 +179,8 @@ export function createUnits(scene) {
       badge.position.y = height + 0.65;
       tags.add(badge);
     }
-    if (standIn) {
-      const name = tagSprite(unit[0].toUpperCase() + unit.slice(1), { color: '#fff1d6', size: 48 });
+    if (label) {
+      const name = tagSprite(label, { color: '#fff1d6', size: 44, width: 420 });
       name.position.y = 0.12;
       tags.add(name);
     }
@@ -147,8 +189,10 @@ export function createUnits(scene) {
 
     const mixer = new THREE.AnimationMixer(model);
     const actions = {};
-    for (const [name, [rig, clipName]] of Object.entries(CLIPS)) {
-      const a = mixer.clipAction(THREE.AnimationClip.findByName(rigs[rig].animations, clipName));
+    for (const [name, [rig, clipName]] of Object.entries({ ...DEFAULT_CLIPS, ...mini.clips })) {
+      const clip = THREE.AnimationClip.findByName(rigs[rig], clipName);
+      if (!clip) throw new Error(`${unit}: no clip ${clipName} in ${RIG_FILES[rig]}`);
+      const a = mixer.clipAction(clip);
       if (ONCE.has(name)) { a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; }
       actions[name] = a;
     }
@@ -187,5 +231,7 @@ export function createUnits(scene) {
     update(dt) { for (const u of live) u.mixer.update(dt); },
     clear() { for (const u of live.splice(0)) u.dispose(); },
     get count() { return live.length; },
+    // What is on the board, for stateText: unit, model file, clip playing.
+    list() { return live.map((u) => ({ unit: u.unit, side: u.side, model: MINIS[u.unit].file, animation: u.animation })); },
   };
 }
