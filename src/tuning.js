@@ -50,22 +50,22 @@ export const TUNING = {
   enemies: {
     skeletonWarrior: {
       name: 'Skeleton Warrior', role: 'melee', cost: 0,
-      hp: 1280, damage: 76.8, attackSpeed: 1.53, range: 1, moveSpeed: 1.5,
+      hp: 1510, damage: 90.6, attackSpeed: 1.81, range: 1, moveSpeed: 1.5,
       special: { name: 'Heavy Blow', kind: 'heavyBlow', built: true, cooldown: 6, multiplier: 2.5 },
     },
     skeletonRogue: {
       name: 'Skeleton Rogue', role: 'fast melee', cost: 0,
-      hp: 768, damage: 76.8, attackSpeed: 2.05, range: 1, moveSpeed: 2.0,
+      hp: 906, damage: 90.6, attackSpeed: 2.42, range: 1, moveSpeed: 2.0,
       special: { name: 'Backstab', kind: 'heavyBlow', built: true, cooldown: 5, multiplier: 2 },
     },
     skeletonMage: {
       name: 'Skeleton Mage', role: 'ranged caster', cost: 0,
-      hp: 683, damage: 68.3, attackSpeed: 1.2, range: 3, moveSpeed: 1.2,
-      special: { name: 'Bone Burst', kind: 'areaBlast', built: true, cooldown: 8, damage: 205, radius: 1 },
+      hp: 806, damage: 80.6, attackSpeed: 1.42, range: 3, moveSpeed: 1.2,
+      special: { name: 'Bone Burst', kind: 'areaBlast', built: true, cooldown: 8, damage: 242, radius: 1 },
     },
     skeletonMinion: {
       name: 'Skeleton Minion', role: 'fodder', cost: 0,
-      hp: 512, damage: 42.6, attackSpeed: 1.71, range: 1, moveSpeed: 1.6,
+      hp: 604, damage: 50.3, attackSpeed: 2.02, range: 1, moveSpeed: 1.6,
       special: { name: 'Rattle', kind: 'none', built: false, cooldown: 99 },
     },
   },

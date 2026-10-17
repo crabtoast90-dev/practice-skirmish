@@ -19,3 +19,4 @@ One dated line per decision the user makes.
 - 2026-10-17: A4 tuning: Mage +30% HP, damage, attack speed and Fireball damage (450 HP, 40 dmg, 0.7/s, 160 → 585, 52, 0.91/s, 208); range, move speed and cooldown unchanged.
 - 2026-10-17: A4 tuning: all four skeletons another +75% on top of the +50% (HP, damage, attack speed, Bone Burst damage; about 2.6x the original HP, damage and attack speed, rounded); range, move speed and cooldowns unchanged.
 - 2026-10-17: A4 tuning: all four skeletons -35% from the last setting (HP, damage, attack speed, Bone Burst damage; about 1.7x the original, rounded); range, move speed and cooldowns unchanged.
+- 2026-10-17: A4 tuning: all four skeletons +18% from the last setting (HP, damage, attack speed, Bone Burst damage; about 2.0x the original, rounded); range, move speed and cooldowns unchanged.

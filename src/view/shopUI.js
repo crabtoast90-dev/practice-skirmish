@@ -114,11 +114,24 @@ export function createShopUI({ scene, camera, canvas, tuning, onBuy, onReroll, o
       else hintEl.textContent = 'Buy a unit';
     },
 
-    // Where a cell on your half is on screen, in CSS pixels (for the check).
+    // Where to tap a cell on your half, in CSS pixels (for the check): its
+    // centre, or else the nearest visible part of it when a mini standing in
+    // front hides the centre (a tap on a mini's body picks that mini).
     cellToScreen(row, col) {
-      const p = cellToWorld(col, globalRow('player', row)).project(camera);
       const r = canvas.getBoundingClientRect();
-      return { x: r.left + ((p.x + 1) / 2) * r.width, y: r.top + ((1 - p.y) / 2) * r.height };
+      const c = cellToWorld(col, globalRow('player', row));
+      const toScreen = (dx, dz) => {
+        const p = new THREE.Vector3(c.x + dx * CELL, c.y, c.z + dz * CELL).project(camera);
+        return { x: r.left + ((p.x + 1) / 2) * r.width, y: r.top + ((1 - p.y) / 2) * r.height };
+      };
+      for (const d of [0, 0.2, 0.4]) {
+        for (const [dx, dz] of [[0, 0], [0, -d], [-d, -d], [d, -d], [-d, 0], [d, 0], [0, d]]) {
+          const s = toScreen(dx, dz);
+          const hit = cellAt(s.x, s.y);
+          if (hit && hit.row === row && hit.col === col) return s;
+        }
+      }
+      return toScreen(0, 0);
     },
   };
 }

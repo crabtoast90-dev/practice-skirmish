@@ -261,7 +261,7 @@ for (const u of unitRows) {
 for (const p of pairRows.filter((q) => q.n >= PAIR_MIN && q.rate > tg.pairWinRateMax).sort((x, y) => y.rate - x.rate)) {
   flags.push(`${p.name} nearly always wins: ${pct(p.rate)} head-to-head over ${p.n} boards (flag above ${pct(tg.pairWinRateMax)}).`);
 }
-if (r1.clear < tg.round1ClearRate) flags.push(`Only ${pct(r1.clear)} of reasonable boards clear round 1 (target ~${pct(tg.round1ClearRate)}).`);
+if (r1.clear < tg.round1ClearRate) flags.push(`Only ${pct1(r1.clear)} of reasonable boards clear round 1 (target ~${pct(tg.round1ClearRate)}).`);
 if (Math.abs(r5.clear - tg.round5ClearRate) > tg.round5Tolerance) {
   flags.push(`${pct(r5.clear)} of reasonable boards beat the round 5 boss (target ~${pct(tg.round5ClearRate)}): ${r5.clear > tg.round5ClearRate ? 'the boss is too easy' : 'the boss is too hard'} for what ${Math.round(r5.spent)} gold buys (${r5.units.toFixed(1)} units, ${r5.twoStars.toFixed(1)} of them 2-stars).`);
 }
@@ -321,7 +321,7 @@ const headline = (() => {
   if (pveAvg > tg.fightSeconds[1]) verdict.push('fights against them drag');
   const sentence = verdict.length ? `In short: ${verdict.join(', ')}.` : 'In short: everything is on target.';
   return [
-    `${sentence} Reasonable player boards clear round 1 **${pct(r1.clear)}** of the time (target ~${pct(tg.round1ClearRate)}) and beat the round 5 boss **${pct(r5.clear)}** (target ~${pct(tg.round5ClearRate)}).`,
+    `${sentence} Reasonable player boards clear round 1 **${pct1(r1.clear)}** of the time (target ~${pct(tg.round1ClearRate)}) and beat the round 5 boss **${pct(r5.clear)}** (target ~${pct(tg.round5ClearRate)}).`,
     `Head-to-head at equal gold the strongest unit is the **${best.name} (${pct1(best.h2h)})** and the weakest the **${worst.name} (${pct1(worst.h2h)})** (target ${pct(tg.unitWinRate[0])}-${pct(tg.unitWinRate[1])}).`,
     `Fights against the skeletons average **${sec(pveAvg)}** (target ${tg.fightSeconds[0]}-${tg.fightSeconds[1]} s) with ${pveTimeouts} timeouts.`,
   ].join(' ');
