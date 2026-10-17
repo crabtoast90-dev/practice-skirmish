@@ -114,7 +114,20 @@ function frameGame(w, h, inset) {
   return { target, d };
 }
 
+// Two play framings: with the shop open (board above the panel) and during the
+// fight (shop hidden, board bigger). The camera glides between them.
+let frames = null;
 let gameFrame = null;
+const wantedFrame = () => (shopPanel.hidden ? frames.fight : frames.shop);
+function glideCamera(dt) {
+  const want = wantedFrame();
+  if (gameFrame === want) return;
+  const k = 1 - Math.exp(-dt * 5);
+  const target = gameFrame.target.clone().lerp(want.target, k);
+  const d = gameFrame.d + (want.d - gameFrame.d) * k;
+  gameFrame = target.distanceTo(want.target) < 1e-3 && Math.abs(d - want.d) < 1e-3 ? want : { target, d };
+  if (view === 'game') { applyView(); playback.refresh(); }
+}
 function applyView() {
   const v = VIEWS[view];
   if (view === 'game') placeCamera(gameFrame.target, v.elevation, v.yaw, gameFrame.d);
@@ -125,12 +138,12 @@ function applyView() {
   post.setBlur(view === 'game' ? BLUR : BLUR * 1.6);
 }
 
-// The camera keeps the same framing through shop and fight, measured with the shop open.
+// Screen px at the bottom taken by the HUD, with the shop panel open or hidden.
 const hud = document.getElementById('hud');
 const shopPanel = document.getElementById('shop');
-function hudInset() {
+function hudInset(open) {
   const wasHidden = shopPanel.hidden;
-  shopPanel.hidden = false;
+  shopPanel.hidden = !open;
   const top = hud.getBoundingClientRect().top;
   shopPanel.hidden = wasHidden;
   return Math.max(0, innerHeight - top - 8);
@@ -143,7 +156,8 @@ function resize() {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   post.resize(w, h);
-  gameFrame = frameGame(w, h, hudInset());
+  frames = { shop: frameGame(w, h, hudInset(true)), fight: frameGame(w, h, hudInset(false)) };
+  gameFrame = wantedFrame();
   applyView();
 }
 addEventListener('resize', resize);
@@ -224,6 +238,7 @@ function step(dt) {
     if (playback.done) showResult();
   }
   units.update(dt);
+  glideCamera(dt);
 }
 
 function render() {

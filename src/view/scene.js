@@ -35,7 +35,7 @@ export const PALETTE = {
   frameGrain: '#2a160b',
   lamp: 0xffc98a,
   lampBrass: 0xb3884a,
-  lampShade: 0x1f4a36,
+  lampShade: 0x2f6b4c,
   fill: 0x51607f,
   rim: 0x8aa0d0,
 };
@@ -241,7 +241,7 @@ function createLamp(base, head, aim) {
   }
   // Shade: an open cone, green outside, warm cream inside, pointing at the board.
   const shadeGeo = new THREE.CylinderGeometry(0.16, 0.62, 0.7, 32, 1, true);
-  const outside = new THREE.Mesh(shadeGeo, new THREE.MeshStandardMaterial({ color: PALETTE.lampShade, roughness: 0.35, metalness: 0.2, side: THREE.FrontSide }));
+  const outside = new THREE.Mesh(shadeGeo, new THREE.MeshStandardMaterial({ color: PALETTE.lampShade, emissive: 0x10281b, roughness: 0.3, metalness: 0.3, side: THREE.FrontSide }));
   const inside = new THREE.Mesh(shadeGeo, new THREE.MeshBasicMaterial({ color: 0xffe2b0, side: THREE.BackSide }));
   const cap = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), brass);
   cap.position.y = 0.33;
@@ -258,7 +258,7 @@ function createLamp(base, head, aim) {
   lamp.add(bulb);
   const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.8 }));
   glow.position.copy(head.clone().add(aim.clone().sub(head).normalize().multiplyScalar(0.45)));
-  glow.scale.setScalar(2.2);
+  glow.scale.setScalar(1.7);
   lamp.add(glow);
   return { lamp, bulbPos };
 }
