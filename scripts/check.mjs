@@ -302,13 +302,31 @@ async function spreadRun(page, name, click) {
 
 // Specials: a 5v5 where every special goes off. Steps the clock in tenths of a second and
 // screenshots the first moment each effect is on screen, so every shot is mid-effect.
-const FX_PLAYER = [{ unit: 'knight', row: 0, col: 1 }, { unit: 'barbarian', row: 0, col: 3 }, { unit: 'rogue', row: 1, col: 2 }, { unit: 'mage', row: 2, col: 1 }, { unit: 'ranger', row: 2, col: 3 }];
-const FX_ENEMY = [{ unit: 'skeletonWarrior', row: 0, col: 1 }, { unit: 'skeletonWarrior', row: 0, col: 3 }, { unit: 'skeletonMinion', row: 0, col: 2 }, { unit: 'skeletonMage', row: 2, col: 1 }, { unit: 'skeletonMage', row: 2, col: 3 }];
+// Candidate boards (2-star heroes, so the Knight lives to raise Shield Wall); the check
+// plays the first one where, simulated in Node with the coming fight's seed, all six specials fire.
+const S2 = (unit, row, col) => ({ unit, row, col, star: 2 });
+const FX_BOARDS = [
+  [[S2('knight', 0, 2), S2('barbarian', 0, 3), S2('rogue', 1, 1), S2('mage', 2, 1), S2('ranger', 2, 3)],
+    [{ unit: 'skeletonWarrior', row: 0, col: 2 }, { unit: 'skeletonMinion', row: 0, col: 1 }, { unit: 'skeletonMinion', row: 0, col: 3 }, { unit: 'skeletonMage', row: 2, col: 1 }, { unit: 'skeletonMage', row: 2, col: 3 }]],
+  [[S2('knight', 0, 1), S2('barbarian', 0, 3), S2('rogue', 1, 2), S2('mage', 2, 1), S2('ranger', 2, 3)],
+    [{ unit: 'skeletonWarrior', row: 0, col: 2 }, { unit: 'skeletonMinion', row: 0, col: 1 }, { unit: 'skeletonMinion', row: 0, col: 3 }, { unit: 'skeletonMage', row: 2, col: 1 }, { unit: 'skeletonMage', row: 2, col: 3 }]],
+  [[S2('knight', 0, 1), S2('barbarian', 0, 3), S2('rogue', 1, 2), S2('mage', 2, 1), S2('ranger', 2, 3)],
+    [{ unit: 'skeletonWarrior', row: 0, col: 1 }, { unit: 'skeletonWarrior', row: 0, col: 3 }, { unit: 'skeletonMinion', row: 0, col: 2 }, { unit: 'skeletonMage', row: 2, col: 1 }, { unit: 'skeletonMage', row: 2, col: 3 }]],
+];
+function fxBoard(seed) {
+  const fires = ([p, e]) => {
+    const r = simulate(TUNING, p, e, seed);
+    const names = new Set(r.events.filter((ev) => ev.type === 'special').map((ev) => ev.name));
+    return ['Shield Wall', 'Cleave', 'Shadow Leap', 'Fireball', 'Piercing Arrow', 'Bone Burst'].every((n) => names.has(n));
+  };
+  return FX_BOARDS.find(fires) ?? FX_BOARDS[0];
+}
 const FX_SPECIALS = { shield: 'Shield Wall', cleave: 'Cleave', leap: 'Shadow Leap', fireburst: 'Fireball', pierce: 'Piercing Arrow', boneBurst: 'Bone Burst', blow: 'Heavy Blow' };
 const FX_ATTACKS = { arrow: 'arrow', bolt: 'Mage bolt', boneBolt: 'Skeleton Mage bolt', number: 'damage number', hit: 'hit flash' };
 async function specialsRun(page, name, click) {
   if ((await state(page)).screen === 'result') { await click('#fight'); await advance(page, 300); } // on to the next shop first
-  await page.evaluate(([p, e]) => window.__game.setBoards(p, e), [FX_PLAYER, FX_ENEMY]);
+  const [fxPlayer, fxEnemy] = fxBoard((await state(page)).fightSeed + 1); // run.js: each fight's seed is the last one's + 1
+  await page.evaluate(([p, e]) => window.__game.setBoards(p, e), [fxPlayer, fxEnemy]);
   await advance(page, 300);
   await click('#fight');
   const caught = [];
@@ -320,8 +338,8 @@ async function specialsRun(page, name, click) {
     const now = Object.keys(s.battle.effects);
     for (const k of now) firstSeen[k] ??= i;
     const fresh = now.filter((k) => (k in FX_SPECIALS || k in FX_ATTACKS) && !caught.includes(k) && i - firstSeen[k] >= 2);
-    // One shot for normal attacks, once an arrow, a bolt and a number are all in the air.
-    const attacks = ['arrow', 'bolt', 'number'].every((k) => now.includes(k)) && !caught.includes('attacks');
+    // One shot for normal attacks, once an arrow or bolt and a damage number are both on screen.
+    const attacks = (now.includes('arrow') || now.includes('bolt')) && now.includes('number') && !caught.includes('attacks');
     const specials = fresh.filter((k) => k in FX_SPECIALS);
     if (specials.length) {
       const file = `8-special-${specials.join('-')}`;
@@ -332,7 +350,7 @@ async function specialsRun(page, name, click) {
     if (attacks) {
       await shot(page, name, '8-attacks');
       shots.push(`8-attacks at ${s.battle.t}s (${now.join(', ')})`);
-      caught.push('attacks', 'arrow', 'bolt', 'number');
+      caught.push('attacks');
     }
   }
   await finish(page);
