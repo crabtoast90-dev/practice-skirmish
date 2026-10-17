@@ -19,7 +19,7 @@ Each item can be pasted alone into a fresh builder session. Every session reads 
 - [x] **A3. Full balance report.** (done 2026-10-17) After A2. "Reasonable player boards": generate boards a sensible player could afford by each round from the gold curve and shop odds in tuning (front-liners in front, ranged behind, 2-stars when two copies are affordable), thousands per round. Whole runs follow B3's rule (a loss costs a life and moves on); if B3 isn't merged yet, measure per-round clear rates and leave whole runs to B3. Board size is limited only by the 15 cells. Report: win rate per unit in mixed boards, per 2-unit pair (grid), per round (clear rate rounds 1-5), average fight length, timeouts, and plain-word flags against the targets (unit above 60% / below 40%, a pair that always wins, a unit that never wins, fights outside 10-25 s, round 1 below ~95%, round 5 far from ~33%). Files: `scripts/sim.mjs`, new `src/sim/boards.js`, `src/tuning.js` (SHARED, add any generator knobs to the targets section only).
   *Done when:* `BALANCE.md` has all five sections filled with numbers, a top-of-file headline in plain words, and runs in under a minute.
 
-- [ ] **A4. First tuning pass.** After A3. The user reads `BALANCE.md` and gives tuning calls by name; apply them in `src/tuning.js`, rerun, quote the new headline. Repeat per batch. Files: `src/tuning.js` (SHARED), `BALANCE.md`.
+- [x] **A4. First tuning pass.** (done 2026-10-17) After A3. The user reads `BALANCE.md` and gives tuning calls by name; apply them in `src/tuning.js`, rerun, quote the new headline. Repeat per batch. Files: `src/tuning.js` (SHARED), `BALANCE.md`.
   *Done when:* each call is a dated line in `DECISIONS.md` and the headline is quoted back.
 
 ## Lane B: the game loop
