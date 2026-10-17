@@ -28,7 +28,7 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, quality.pixelRatio));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 1.35;
 
 const { scene, boardSize, lampHead } = createScene(quality);
 const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 80);

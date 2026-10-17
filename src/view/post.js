@@ -20,11 +20,11 @@ const GradeShader = {
     void main() {
       vec3 c = texture2D(tDiffuse, vUv).rgb;
       float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-      c = mix(c * vec3(0.86, 0.95, 1.18), c, smoothstep(0.0, 0.18, l)); // cool shadows
+      c = mix(c * vec3(0.86, 0.95, 1.18), c, smoothstep(0.0, 0.12, l)); // cool shadows
       c = mix(c, c * vec3(1.06, 1.0, 0.9), smoothstep(0.25, 1.0, l));   // warm highlights
       c = max(mix(vec3(l), c, 1.12), 0.0);                              // a touch more saturation
       float v = smoothstep(0.95, 0.25, distance(vUv, centre));
-      c *= mix(0.55, 1.0, v);
+      c *= mix(0.78, 1.0, v);
       gl_FragColor = vec4(c, 1.0);
     }`,
 };

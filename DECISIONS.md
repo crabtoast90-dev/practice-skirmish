@@ -9,3 +9,4 @@ One dated line per decision the user makes.
 - 2026-10-17: Look is a lamp-lit tabletop diorama (warm side light, wooden gridded board, soft shadows, slight tilt-shift); lighting first; the look is one item owned by one session.
 - 2026-10-17: Stack and workflow copied from practice-glade (three.js pinned, Vite, Pages on push to main, `npm run check`).
 - 2026-10-17: LOG.md drops the directing / reviewing / playing minutes. It tracks three times instead: Claude working on any prompt; the user replying within 20 minutes of Claude finishing; and both together as real time. Time when several sessions overlap counts once.
+- 2026-10-17: Look feedback after D1: "too dark" — brightened the lamp pool, room fill, exposure and vignette (scores 1.6 fun / 2.2 look were given on the darker version).

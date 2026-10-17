@@ -23,7 +23,7 @@ export function cellToWorld(x, y) {
 
 // Palette shared by the table, board, lamp and lights.
 export const PALETTE = {
-  room: 0x0f131c,
+  room: 0x1a2130,
   table: '#4a2e1c',
   tableGrain: '#2c1a0f',
   playerWood: '#c09058', // honey oak
@@ -36,7 +36,7 @@ export const PALETTE = {
   lamp: 0xffc98a,
   lampBrass: 0xb3884a,
   lampShade: 0x2f6b4c,
-  fill: 0x51607f,
+  fill: 0x6a7ba0,
   rim: 0x8aa0d0,
 };
 
@@ -286,7 +286,7 @@ export function createScene(quality) {
   const aim = new THREE.Vector3(0.4, 0, -0.5);
   const { lamp: lampModel, bulbPos } = createLamp(new THREE.Vector3(-6.7, 0, -2.6), new THREE.Vector3(-5.0, 3.3, -1.0), aim);
   scene.add(lampModel);
-  const lamp = new THREE.SpotLight(PALETTE.lamp, 120, 30, Math.PI / 3.6, 0.75, 1.5);
+  const lamp = new THREE.SpotLight(PALETTE.lamp, 170, 30, Math.PI / 3.1, 0.85, 1.5);
   lamp.position.copy(bulbPos);
   lamp.target.position.copy(aim);
   lamp.castShadow = true;
@@ -304,8 +304,8 @@ export function createScene(quality) {
   const bounce = new THREE.PointLight(PALETTE.lamp, 2.5, 6, 2);
   bounce.position.set(-5.2, 1.2, -1.6);
   scene.add(bounce);
-  scene.add(new THREE.HemisphereLight(PALETTE.fill, 0x1a110a, 1.0));
-  const rim = new THREE.DirectionalLight(PALETTE.rim, 0.6);
+  scene.add(new THREE.HemisphereLight(PALETTE.fill, 0x2a1c12, 1.9));
+  const rim = new THREE.DirectionalLight(PALETTE.rim, 0.9);
   rim.position.set(6, 5, -8);
   scene.add(rim);
 
