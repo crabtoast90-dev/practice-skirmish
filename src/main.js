@@ -328,6 +328,7 @@ function stateText() {
     `board: player ${s.board.map((e) => `${e.unit}${e.star === 2 ? '★★' : ''}@r${e.row}c${e.col}`).join(', ') || 'empty'} vs enemy ${enemyBoard().map((e) => `${e.unit}@r${e.row}c${e.col}`).join(', ')}; ${s.minis} minis on the board`,
     `models: ${s.models.map((m) => `${m.unit}=${m.model} (${m.animation})`).join(', ') || 'none'}`,
     b ? `battle: t=${b.t}s; ${b.units.map((u) => `${u.unit} ${u.hp}hp ${u.animation} @${u.x},${u.y}`).join('; ')}` : 'battle: not running',
+    b ? `effects: on screen ${Object.entries(b.effects).map(([k, n]) => `${k}×${n}`).join(', ') || 'none'}; this fight ${Object.entries(b.effectsSeen).map(([k, n]) => `${k}×${n}`).join(', ') || 'none'}` : 'effects: none',
     s.sim ? `sim decided: ${s.sim.winner} in ${s.sim.duration}s` : 'sim decided: nothing yet',
     s.result ? `result: ${s.result.winner}, survivors ${s.result.survivors.map((x) => `${x.unit} ${x.hp}hp`).join(', ') || 'none'}` : 'result: none',
     `look: view ${view}, camera fov ${camera.fov.toFixed(1)}, pixel ratio ${renderer.getPixelRatio()}, shadow map ${quality.shadowMap}, tilt-shift on, lamp at ${lampHead.toArray().map((n) => n.toFixed(1)).join(',')}`,

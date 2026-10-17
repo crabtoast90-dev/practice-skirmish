@@ -300,6 +300,53 @@ async function spreadRun(page, name, click) {
   matchNode(`${name} 3v3`, end);
 }
 
+// Specials: a 5v5 where every special goes off. Steps the clock in tenths of a second and
+// screenshots the first moment each effect is on screen, so every shot is mid-effect.
+const FX_PLAYER = [{ unit: 'knight', row: 0, col: 1 }, { unit: 'barbarian', row: 0, col: 3 }, { unit: 'rogue', row: 1, col: 2 }, { unit: 'mage', row: 2, col: 1 }, { unit: 'ranger', row: 2, col: 3 }];
+const FX_ENEMY = [{ unit: 'skeletonWarrior', row: 0, col: 1 }, { unit: 'skeletonWarrior', row: 0, col: 3 }, { unit: 'skeletonMinion', row: 0, col: 2 }, { unit: 'skeletonMage', row: 2, col: 1 }, { unit: 'skeletonMage', row: 2, col: 3 }];
+const FX_SPECIALS = { shield: 'Shield Wall', cleave: 'Cleave', leap: 'Shadow Leap', fireburst: 'Fireball', pierce: 'Piercing Arrow', boneBurst: 'Bone Burst', blow: 'Heavy Blow' };
+const FX_ATTACKS = { arrow: 'arrow', bolt: 'Mage bolt', boneBolt: 'Skeleton Mage bolt', number: 'damage number', hit: 'hit flash' };
+async function specialsRun(page, name, click) {
+  if ((await state(page)).screen === 'result') { await click('#fight'); await advance(page, 300); } // on to the next shop first
+  await page.evaluate(([p, e]) => window.__game.setBoards(p, e), [FX_PLAYER, FX_ENEMY]);
+  await advance(page, 300);
+  await click('#fight');
+  const caught = [];
+  const shots = [];
+  const firstSeen = {}; // effect -> step it first showed; shoot two steps (0.2 s) in, when it's in full swing
+  for (let i = 0; i < 200; i++) {
+    const s = await advance(page, 100);
+    if (s.screen !== 'battle') break;
+    const now = Object.keys(s.battle.effects);
+    for (const k of now) firstSeen[k] ??= i;
+    const fresh = now.filter((k) => (k in FX_SPECIALS || k in FX_ATTACKS) && !caught.includes(k) && i - firstSeen[k] >= 2);
+    // One shot for normal attacks, once an arrow, a bolt and a number are all in the air.
+    const attacks = ['arrow', 'bolt', 'number'].every((k) => now.includes(k)) && !caught.includes('attacks');
+    const specials = fresh.filter((k) => k in FX_SPECIALS);
+    if (specials.length) {
+      const file = `8-special-${specials.join('-')}`;
+      await shot(page, name, file);
+      shots.push(`${file} at ${s.battle.t}s (${specials.map((k) => FX_SPECIALS[k]).join(' + ')}; also on screen: ${now.filter((k) => !specials.includes(k)).join(', ')})`);
+      caught.push(...specials);
+    }
+    if (attacks) {
+      await shot(page, name, '8-attacks');
+      shots.push(`8-attacks at ${s.battle.t}s (${now.join(', ')})`);
+      caught.push('attacks', 'arrow', 'bolt', 'number');
+    }
+  }
+  await finish(page);
+  const end = await state(page);
+  const seen = end.battle?.effectsSeen ?? {};
+  const missing = ['shield', 'cleave', 'leap', 'fireball', 'fireburst', 'pierce', 'bone', 'boneBurst', 'arrow', 'bolt', 'boneBolt', 'hit', 'number'].filter((k) => !seen[k]);
+  if (missing.length) failures.push(`[${name}] specials fight: these effects never played: ${missing.join(', ')}`);
+  const specialShots = caught.filter((k) => k in FX_SPECIALS && k !== 'blow');
+  if (specialShots.length < 4) failures.push(`[${name}] specials fight: only ${specialShots.length} specials caught mid-effect (${specialShots.join(', ')}), want at least 4`);
+  summaries.push(`[${name}] specials fight: ${specialShots.length} specials caught mid-effect; effects played: ${Object.entries(seen).map(([k, n]) => `${k}×${n}`).join(', ')}\n  ${shots.join('\n  ')}`);
+  if (end.screen !== 'result') failures.push(`[${name}] specials fight never ended (screen ${end.screen})`);
+  matchNode(`${name} specials`, end);
+}
+
 // Line-up: all nine minis standing on the board facing the camera, each with
 // its own model file; then back to a normal board.
 async function lineupRun(page, name) {
@@ -407,6 +454,7 @@ async function fullRun(page, name, click, tapAt) {
   await fightRun(page, name, click);
   await thirdUnit(page, name, click, tapAt);
   await spreadRun(page, name, click);
+  await specialsRun(page, name, click);
   await lineupRun(page, name);
 }
 

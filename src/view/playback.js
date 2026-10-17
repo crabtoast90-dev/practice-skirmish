@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { BASE_H } from './units.js';
+import { CELL, cellToWorld } from './scene.js';
+import { createEffects } from './effects.js';
 
 // Plays back a finished sim result. The sim already decided everything; this
 // only moves the minis between recorded frames and fires animations on events.
@@ -60,7 +62,18 @@ function makeBar(side) {
   return { g, fg };
 }
 
+// What each ranged mini fires on a normal attack (speeds in metres per second).
+const SHOTS = {
+  ranger: { kind: 'arrow', speed: 14, arc: 0.25 },
+  mage: { kind: 'bolt', speed: 9, arc: 0.15 },
+  skeletonMage: { kind: 'boneBolt', speed: 9, arc: 0.15 },
+};
+const SPECIAL_SHOT = { speed: 8, arc: 0.9 }; // Fireball and Bone Burst lob onto the spot
+const PIERCE = { speed: 16, beyond: 7 }; // Piercing Arrow keeps flying off the board
+const LEAP = { time: 0.4, height: 1.1 }; // Shadow Leap hop
+
 export function createPlayback(scene, units, camera) {
+  const effects = createEffects(scene, camera);
   let result = null;
   let views = [];
   let bars = [];
@@ -74,6 +87,7 @@ export function createPlayback(scene, units, camera) {
     t = 0;
     nextEvent = 0;
     done = false;
+    shots = {};
     const f0 = r.frames[0];
     views = r.units.map((u, i) => units.spawn(u.unit, u.side, f0[i][0], f0[i][1], { star: u.star }));
     bars = r.units.map((u) => {
@@ -87,6 +101,7 @@ export function createPlayback(scene, units, camera) {
 
   function stop() {
     units.clear();
+    effects.clear();
     for (const b of bars) scene.remove(b.g);
     bars = [];
     views = [];
@@ -105,6 +120,11 @@ export function createPlayback(scene, units, camera) {
       const y = a[i][1] + (b[i][1] - a[i][1]) * k;
       const before = v.group.position.clone();
       v.setCell(x, y);
+      // Shadow Leap: the sim teleports; the view hops along an arc to the landing cell.
+      if (v.hop && t - v.hop.start < LEAP.time) {
+        const k = (t - v.hop.start) / LEAP.time;
+        v.group.position.lerpVectors(v.hop.from, v.group.position.clone(), k).y += Math.sin(Math.PI * k) * LEAP.height;
+      }
       const moved = v.group.position.distanceTo(before) > 1e-4;
       // Face where we're walking, else whoever we last swung at.
       const look = moved ? v.group.position.clone().sub(before) : v.lastTarget ? views[v.lastTarget].group.position.clone().sub(v.group.position) : null;
@@ -120,6 +140,58 @@ export function createPlayback(scene, units, camera) {
     });
   }
 
+  // Effects for one sim event. Projectiles launched this tick are remembered per
+  // shooter so the hits that follow show their flash and number when they land.
+  const at = (id) => () => views[id].group.position;
+  let shots = {};
+  function onEvent(e) {
+    const v = views[e.id];
+    if (e.type === 'attack') {
+      v.play('attack');
+      v.lastTarget = e.to;
+      const shot = SHOTS[v.unit];
+      const next = result.events[nextEvent];
+      const isSpecial = next && next.type === 'special' && next.id === e.id && next.t === e.t; // Piercing Arrow fires instead
+      if (shot && !isSpecial) {
+        effects.projectile(shot.kind, at(e.id), at(e.to), shot);
+        shots[e.id] = { t: e.t, speed: shot.speed, from: v.group.position.clone() };
+      }
+    }
+    if (e.type === 'special') {
+      v.play('special');
+      if (e.kind === 'shield') effects.shield(at(e.id), e.until - e.t, () => v.animation !== 'death');
+      if (e.kind === 'cleave') effects.cleave(at(e.id), at(e.to[0]), CELL * 1.25);
+      if (e.kind === 'blow') effects.slam(at(e.to[0]));
+      if (e.kind === 'leap') {
+        const from = cellToWorld(e.from[0], e.from[1]);
+        effects.leap(from, cellToWorld(e.to[0], e.to[1]), LEAP.height);
+        v.hop = { from, start: e.t };
+      }
+      if (e.kind === 'blast') {
+        const spot = cellToWorld(e.at[0], e.at[1]);
+        const kind = v.side === 'enemy' ? 'bone' : 'fireball';
+        const fx = effects.projectile(kind, at(e.id), spot, { ...SPECIAL_SHOT, onArrive: () => effects.burst(kind, spot, e.radius * CELL) });
+        shots[e.id] = { t: e.t, flight: fx.flight, area: true };
+      }
+      if (e.kind === 'pierce') {
+        effects.projectile('pierce', at(e.id), at(e.to[0]), PIERCE);
+        shots[e.id] = { t: e.t, speed: PIERCE.speed, from: v.group.position.clone() };
+      }
+    }
+    if (e.type === 'hit') {
+      const shot = shots[e.from]?.t === e.t ? shots[e.from] : null;
+      const target = views[e.to];
+      // Area blasts land all at once; arrows reach each victim in turn.
+      const delay = !shot ? 0 : shot.area ? shot.flight : shot.from.distanceTo(target.group.position) / shot.speed;
+      const style = e.special ? 'special' : target.side;
+      effects.later(delay, () => {
+        effects.hitFlash(at(e.to), !!e.special);
+        effects.number(at(e.to), e.amount, style);
+      });
+    }
+    if (e.type === 'death') v.play('death');
+  }
+
   return {
     start,
     stop,
@@ -130,13 +202,9 @@ export function createPlayback(scene, units, camera) {
     update(dt) {
       if (!result) return;
       t = Math.min(t + dt, result.duration + 2.5); // linger on the end pose
-      while (nextEvent < result.events.length && result.events[nextEvent].t <= t) {
-        const e = result.events[nextEvent++];
-        if (e.type === 'attack') { views[e.id].play('attack'); views[e.id].lastTarget = e.to; }
-        if (e.type === 'special') views[e.id].play('special');
-        if (e.type === 'death') views[e.id].play('death');
-      }
+      while (nextEvent < result.events.length && result.events[nextEvent].t <= t) onEvent(result.events[nextEvent++]);
       apply();
+      effects.update(dt);
       if (t >= result.duration + 2.5) done = true;
     },
     state() {
@@ -145,6 +213,8 @@ export function createPlayback(scene, units, camera) {
       return {
         t: Math.round(t * 100) / 100,
         units: views.map((v, i) => ({ unit: v.unit, side: v.side, animation: v.animation, hp: frame[i][2], x: frame[i][0], y: frame[i][1] })),
+        effects: effects.active(), // on screen now, by name
+        effectsSeen: effects.counts, // started this fight, by name
       };
     },
   };

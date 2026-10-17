@@ -38,7 +38,7 @@ Each item can be pasted alone into a fresh builder session. Every session reads 
 - [x] **C1. All nine minis.** (merged 2026-10-17) Move Barbarian, Rogue, Mage, Ranger, Skeleton Rogue, Skeleton Mage and Skeleton Minion from `gltf/` to `public/models/units/` (plus `Rig_Medium_CombatRanged.glb` and `Rig_Medium_Special.glb` if used), map each to its attack and cast clips, credit them. Files: `src/view/units.js`, `public/models/units/`, `CREDITS.md`, `scripts/check.mjs` (SHARED, one screenshot with all nine lined up via a test hook).
   *Done when:* a check screenshot shows all nine minis standing on the board, each identifiable; no console errors.
 
-- [ ] **C2. Specials and hits you can read.** After A2 and C1. Play back each special event: Shield Wall glow, Cleave arc, Rogue leap arc, Fireball projectile and burst, piercing arrow, Bone Burst; arrows and bolts fly for ranged attacks; a small hit flash and floating damage numbers. View only; the sim already decided. Files: `src/view/playback.js`, new `src/view/effects.js`.
+- [x] **C2. Specials and hits you can read.** (merged 2026-10-17) After A2 and C1. Play back each special event: Shield Wall glow, Cleave arc, Rogue leap arc, Fireball projectile and burst, piercing arrow, Bone Burst; arrows and bolts fly for ranged attacks; a small hit flash and floating damage numbers. View only; the sim already decided. Files: `src/view/playback.js`, new `src/view/effects.js`.
   *Done when:* check screenshots catch at least four different specials mid-effect; the browser fight still matches Node.
 
 ## Lane D: the look (ONE session owns all of it)
