@@ -17,3 +17,4 @@ One dated line per decision the user makes.
 - 2026-10-17: Victory = finishing round 5 with at least one life left (win or lose round 5). Losing any round costs a life and moves you on; Defeat at 0 lives.
 - 2026-10-17: A4 tuning: all four skeletons +50% HP, damage, attack speed and special damage (Bone Burst 120 → 180); range, move speed and cooldowns unchanged.
 - 2026-10-17: A4 tuning: Mage +30% HP, damage, attack speed and Fireball damage (450 HP, 40 dmg, 0.7/s, 160 → 585, 52, 0.91/s, 208); range, move speed and cooldown unchanged.
+- 2026-10-17: A4 tuning: all four skeletons another +75% on top of the +50% (HP, damage, attack speed, Bone Burst damage; about 2.6x the original HP, damage and attack speed, rounded); range, move speed and cooldowns unchanged.

@@ -348,6 +348,13 @@ window.__game = {
     toSetup();
     return state();
   },
+  // Test hook: every fight in this run is against this enemy board (local rows)
+  // instead of the round's; "Play again" goes back to the real boards.
+  setEnemy(enemy) {
+    testEnemy = enemy;
+    toSetup();
+    return state();
+  },
   // Line-up hook: every hero on your front row and every skeleton on theirs,
   // all facing the camera with name plates, so one shot shows all nine minis.
   // setBoards() goes back to the normal board.
