@@ -254,6 +254,7 @@ function state() {
     seed,
     time: Math.round(clock.time * 100) / 100,
     minis: units.count,
+    round: shop.state.round,
     gold: shop.state.gold,
     offers: [...shop.state.offers],
     held: shop.state.held && { ...shop.state.held },
@@ -276,7 +277,7 @@ function stateText() {
   return [
     `screen: ${s.screen} (models ${s.loaded ? 'loaded' : 'loading'}, mug ${s.propsLoaded ? 'loaded' : 'loading'})`,
     `time: ${s.time}s, seed ${s.seed}`,
-    `gold: ${s.gold}; offers: ${s.offers.map((u) => (u ? `${u} (${TUNING.units[u].cost}g)` : 'sold')).join(', ')}; reroll ${TUNING.economy.rerollCost}g`,
+    `round ${s.round}; gold: ${s.gold}; offers: ${s.offers.map((u) => (u ? `${u} (${TUNING.units[u].cost}g)` : 'sold')).join(', ')}; reroll ${TUNING.economy.rerollCost}g`,
     `hand: ${s.held ? `${s.held.unit} ${s.held.star}-star` : 'empty'}${s.lastMerge ? `; just merged a 2-star ${s.lastMerge.unit}` : ''}`,
     `board: player ${s.board.map((e) => `${e.unit}${e.star === 2 ? '★★' : ''}@r${e.row}c${e.col}`).join(', ') || 'empty'} vs enemy ${ENEMY_BOARD.map((e) => `${e.unit}@r${e.row}c${e.col}`).join(', ')}; ${s.minis} minis on the board`,
     b ? `battle: t=${b.t}s; ${b.units.map((u) => `${u.unit} ${u.hp}hp ${u.animation} @${u.x},${u.y}`).join('; ')}` : 'battle: not running',

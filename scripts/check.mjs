@@ -50,13 +50,14 @@ function shopSeed() {
     const o = shop.state.offers;
     const third = o.findIndex((u) => u !== 'knight');
     if (o.filter((u) => u === 'knight').length !== 2 || third < 0 || TUNING.units[o[third]].cost !== 2) continue;
-    const left = shop.state.gold - 6;
     shop.refresh();
+    const left = shop.state.gold - 6;
     if (shop.state.offers.some((u) => u !== 'knight' && u !== o[third] && TUNING.units[u].cost <= left)) return seed;
   }
   throw new Error('no seed gives a shop with two Knights');
 }
 const SEED = shopSeed();
+const summariesGold = {}; // gold left after the first shop, per run
 
 async function run(name, contextOptions, script) {
   const context = await browser.newContext(contextOptions);
@@ -206,12 +207,16 @@ async function shopRun(page, name, click, tapAt) {
   s = await state(page);
   expect(s.board.some((u) => u.unit === otherUnit && u.row === 1 && u.col === 3) && !s.held, `${otherUnit} not moved to the middle row`);
   expect(s.gold === gold0 - 6, `gold after three buys is ${s.gold}, expected ${gold0 - 6}`);
+  summariesGold[name] = s.gold;
   summaries.push(`## ${name} shop\n${await page.evaluate(() => window.__game.stateText())}`);
 }
 
 // After "Again": a fresh roll; buy one more unit and place it, so three units fight.
 async function thirdUnit(page, name, click, tapAt) {
   let s = await state(page);
+  const income = TUNING.economy.incomePerRound[1];
+  if (s.round !== 2 || s.gold !== summariesGold[name] + income) failures.push(`[${name}] after Again: round ${s.round}, gold ${s.gold} (expected round 2 and ${summariesGold[name]} + ${income} income)`);
+  else summaries.push(`[${name}] after Again: round 2, ${summariesGold[name]} gold left + ${income} income = ${s.gold} gold`);
   const slot = s.offers.findIndex((u) => u && u !== 'knight' && !s.board.some((b) => b.unit === u) && TUNING.units[u].cost <= s.gold);
   if (slot < 0) { failures.push(`[${name}] no affordable new unit after Again (${s.offers}, ${s.gold} gold)`); return; }
   await click(`.offer[data-slot="${slot}"]`);
