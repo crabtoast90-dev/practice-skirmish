@@ -283,10 +283,10 @@ export function createScene(quality) {
 
   // The lamp: one warm spot from the lamp's bulb, low and to the left, so minis
   // cast long soft shadows across the board and the table falls off into the dark.
-  const aim = new THREE.Vector3(0.5, 0, 0.5);
-  const { lamp: lampModel, bulbPos } = createLamp(new THREE.Vector3(-6.2, 0, -4.6), new THREE.Vector3(-4.5, 3.0, -2.9), aim);
+  const aim = new THREE.Vector3(0.4, 0, -0.5);
+  const { lamp: lampModel, bulbPos } = createLamp(new THREE.Vector3(-6.7, 0, -2.6), new THREE.Vector3(-5.0, 3.3, -1.0), aim);
   scene.add(lampModel);
-  const lamp = new THREE.SpotLight(PALETTE.lamp, 95, 30, Math.PI / 3.6, 0.75, 1.5);
+  const lamp = new THREE.SpotLight(PALETTE.lamp, 120, 30, Math.PI / 3.6, 0.75, 1.5);
   lamp.position.copy(bulbPos);
   lamp.target.position.copy(aim);
   lamp.castShadow = true;
@@ -302,9 +302,9 @@ export function createScene(quality) {
   // A small warm bounce near the lamp's foot so the brass reads, and the cool,
   // dim room: a blue-grey sky fill plus a faint moonlit rim from the back right.
   const bounce = new THREE.PointLight(PALETTE.lamp, 2.5, 6, 2);
-  bounce.position.set(-4.6, 1.2, -3.6);
+  bounce.position.set(-5.2, 1.2, -1.6);
   scene.add(bounce);
-  scene.add(new THREE.HemisphereLight(PALETTE.fill, 0x1a110a, 0.85));
+  scene.add(new THREE.HemisphereLight(PALETTE.fill, 0x1a110a, 1.0));
   const rim = new THREE.DirectionalLight(PALETTE.rim, 0.6);
   rim.position.set(6, 5, -8);
   scene.add(rim);
