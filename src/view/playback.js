@@ -31,7 +31,7 @@ export function createPlayback(scene, units, camera) {
     nextEvent = 0;
     done = false;
     const f0 = r.frames[0];
-    views = r.units.map((u, i) => units.spawn(u.unit, u.side, f0[i][0], f0[i][1]));
+    views = r.units.map((u, i) => units.spawn(u.unit, u.side, f0[i][0], f0[i][1], { star: u.star }));
     bars = r.units.map((u) => {
       const b = makeBar(u.side);
       scene.add(b.g);
@@ -71,7 +71,7 @@ export function createPlayback(scene, units, camera) {
       const bar = bars[i];
       bar.fg.scale.x = Math.max(0.001, frac);
       bar.fg.position.x = -(BAR_W * (1 - frac)) / 2;
-      bar.g.position.copy(v.group.position).add(new THREE.Vector3(0, 1.55, 0));
+      bar.g.position.copy(v.group.position).add(new THREE.Vector3(0, v.star === 2 ? 1.75 : 1.55, 0));
       bar.g.quaternion.copy(camera.quaternion);
       bar.g.visible = hp > 0;
     });

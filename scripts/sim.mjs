@@ -5,6 +5,7 @@
 import { writeFileSync } from 'node:fs';
 import { TUNING } from '../src/tuning.js';
 import { simulate, makeRng, COLS, ROWS_PER_SIDE } from '../src/sim/battle.js';
+import { rollOffers } from '../src/game/shop.js';
 
 const SEEDS_PER_PLACEMENT = Number(process.argv.find((a) => a.startsWith('--seeds='))?.slice(8) ?? 10);
 const OUT = 'BALANCE.md';
@@ -154,6 +155,24 @@ const headline = (() => {
 const row = (m) =>
   `| ${m.label} | ${m.n} | ${pct(m.winRate)} | ${pct(m.lossRate)} | ${pct(m.drawRate)} | ${sec(m.avg)} | ${sec(m.p10)}-${sec(m.p90)} | ${pct(m.winnerHpLeft)} |`;
 
+// Shop: roll each round's offers many times with the real shop code.
+const SHOP_ROLLS = 20000;
+const shopUnits = Object.keys(TUNING.economy.shopOdds);
+const shopRounds = TUNING.economy.incomePerRound.map((_, i) => {
+  const rng = makeRng(1000 + i);
+  const seen = Object.fromEntries(shopUnits.map((u) => [u, 0]));
+  let pair = 0;
+  for (let n = 0; n < SHOP_ROLLS; n++) {
+    const o = rollOffers(TUNING, i + 1, rng);
+    for (const u of new Set(o)) seen[u] += 1;
+    if (o.some((u, j) => o.indexOf(u) !== j)) pair += 1;
+  }
+  return { round: i + 1, seen, pair: pair / SHOP_ROLLS };
+});
+const eco = TUNING.economy;
+let goldSoFar = eco.startingGold;
+const goldByRound = eco.incomePerRound.map((g) => (goldSoFar += g));
+
 const md = [
   '# Balance report',
   '',
@@ -185,6 +204,14 @@ const md = [
     const extra = s.kind === 'shieldWall' ? `takes ${pct(s.damageTaken)} damage for ${s.duration} s` : `next hit x${s.multiplier}`;
     return `- ${u.name}: ${u.hp} HP, ${u.damage} damage, ${u.attackSpeed} attacks/s (${Math.round(u.damage * u.attackSpeed)} damage per second), range ${u.range}, moves ${u.moveSpeed} cells/s. Special: ${s.name} every ${s.cooldown} s (${extra}).`;
   }),
+  '',
+  '## Shop',
+  '',
+  `${SHOP_ROLLS} rolls of ${eco.offersPerRound} offers per round from \`src/game/shop.js\`. "Shows up" = at least one copy in a fresh roll; "a pair" = two of the same unit in one roll (buy both for an instant 2-star). Reroll costs ${eco.rerollCost} gold.`,
+  '',
+  `| round | gold if you saved it all | ${shopUnits.map((u) => `${TUNING.units[u].name} shows up`).join(' | ')} | a pair |`,
+  `| --- | --- | ${shopUnits.map(() => '---').join(' | ')} | --- |`,
+  ...shopRounds.map((r, i) => `| ${r.round} | ${goldByRound[i]} | ${shopUnits.map((u) => pct(r.seen[u] / SHOP_ROLLS)).join(' | ')} | ${pct(r.pair)} |`),
   '',
   '## Targets',
   '',

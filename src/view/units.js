@@ -24,6 +24,32 @@ const CLIPS = {
 };
 const ONCE = new Set(['attack', 'special', 'hit', 'death']);
 
+// Until every mini has its own model (PLAN.md C1), the others borrow the
+// Knight's, tinted and name-tagged so you can tell them apart on the board.
+const STAND_IN = { barbarian: 0xd9774a, rogue: 0x6f8f5a, mage: 0x7d6ad8, ranger: 0x4f9a8a };
+const STAR2_SCALE = 1.15;
+
+function tagSprite(text, { color = '#ffd76a', size = 64, width = 256 } = {}) {
+  const c = document.createElement('canvas');
+  c.width = width;
+  c.height = size + 16;
+  const g = c.getContext('2d');
+  g.font = `700 ${size}px Georgia, serif`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.lineWidth = size / 6;
+  g.strokeStyle = 'rgba(30,16,6,0.9)';
+  g.strokeText(text, width / 2, c.height / 2);
+  g.fillStyle = color;
+  g.fillText(text, width / 2, c.height / 2);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+  s.renderOrder = 12;
+  s.scale.set(width / c.height * 0.22, 0.22, 1);
+  return s;
+}
+
 export function createUnits(scene) {
   const loader = new GLTFLoader();
   const load = (f) => loader.loadAsync(DIR + f);
@@ -38,15 +64,37 @@ export function createUnits(scene) {
     ...Object.entries(MODEL_FILES).map(([k, f]) => load(f).then((g) => (models[k] = g.scene))),
   ]);
 
-  function spawn(unit, side, x, y) {
-    const model = cloneSkinned(models[unit]);
+  // star: 2 = a merged 2-star (a touch bigger, with a star badge overhead).
+  function spawn(unit, side, x, y, { star = 1 } = {}) {
+    const standIn = !models[unit];
+    const model = cloneSkinned(models[unit] ?? models.knight);
     model.traverse((o) => {
-      if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
+      if (!o.isMesh) return;
+      o.castShadow = true;
+      o.receiveShadow = true;
+      if (standIn && STAND_IN[unit]) {
+        o.material = o.material.clone();
+        o.material.color.multiply(new THREE.Color(STAND_IN[unit]).lerp(new THREE.Color(0xffffff), 0.25));
+      }
     });
     const box = new THREE.Box3().setFromObject(model);
-    model.scale.setScalar(HEIGHT / (box.max.y - box.min.y));
+    const height = HEIGHT * (star === 2 ? STAR2_SCALE : 1);
+    model.scale.setScalar(height / (box.max.y - box.min.y));
     const group = new THREE.Group();
     group.add(model);
+    const tags = new THREE.Group();
+    if (star === 2) {
+      const badge = tagSprite('★★', { size: 72, width: 200 });
+      badge.scale.multiplyScalar(2);
+      badge.position.y = height + 0.65;
+      tags.add(badge);
+    }
+    if (standIn) {
+      const name = tagSprite(unit[0].toUpperCase() + unit.slice(1), { color: '#fff1d6', size: 48 });
+      name.position.y = 0.12;
+      tags.add(name);
+    }
+    group.add(tags);
     scene.add(group);
 
     const mixer = new THREE.AnimationMixer(model);
@@ -57,7 +105,7 @@ export function createUnits(scene) {
       actions[name] = a;
     }
     const u = {
-      unit, side, group, mixer, animation: 'idle',
+      unit, side, star, group, tags, mixer, animation: 'idle',
       facing: side === 'player' ? Math.PI : 0, // KayKit models face +Z; the player's side looks towards -Z
       setCell(cx, cy) { group.position.copy(cellToWorld(cx, cy)); },
       play(name) {
