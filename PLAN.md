@@ -10,7 +10,7 @@ Each item can be pasted alone into a fresh builder session. Every session reads 
 
 ## Lane A: the sim (the point of this run)
 
-- [ ] **A1. Spacing and targeting.** Minis never stand in the same spot: they path around allies, take the nearest free cell in reach, and melee units spread around a target instead of queueing. Targeting stays "nearest enemy" for everyone except the Rogue's leap (A2). Files: `src/sim/battle.js` (SHARED), `scripts/sim.mjs`, `scripts/check.mjs` (SHARED) for a 3v3 playback step.
+- [x] **A1. Spacing and targeting.** (done 2026-10-17) Minis never stand in the same spot: they path around allies, take the nearest free cell in reach, and melee units spread around a target instead of queueing. Targeting stays "nearest enemy" for everyone except the Rogue's leap (A2). Files: `src/sim/battle.js` (SHARED), `scripts/sim.mjs`, `scripts/check.mjs` (SHARED) for a 3v3 playback step.
   *Done when:* `npm run sim` adds a "no two minis closer than 0.6 cells" sanity line that passes over 1000 random 5v5 fights; the check screenshots a 3v3 fight mid-battle with minis spread out; the browser fight still matches Node.
 
 - [ ] **A2. All specials.** After A1. Build the six missing specials as written in `src/tuning.js`: Barbarian Cleave, Rogue Shadow Leap (jumps to the enemy backline), Mage Fireball (area), Ranger Piercing Arrow, Skeleton Rogue Backstab, Skeleton Mage Bone Burst. Each emits a sim event the view can play. Flip `built: true`. Files: `src/sim/battle.js` (SHARED), `src/tuning.js` (SHARED, flags only, no number changes), `scripts/sim.mjs`.

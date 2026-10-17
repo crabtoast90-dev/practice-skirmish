@@ -6,6 +6,7 @@
 // their front), the enemy owns rows 3-5 (row 3 is their front).
 export const COLS = 5;
 export const ROWS_PER_SIDE = 3;
+export const ROWS = ROWS_PER_SIDE * 2;
 
 // Seeded random numbers (mulberry32).
 export function makeRng(seed) {
@@ -43,6 +44,11 @@ function makeFighter(tuning, side, entry, id, rng) {
     star,
     x: entry.col,
     y: globalRow(side, entry.row),
+    // Movement is cell to cell. cell = the cell it stands on (or is leaving);
+    // next = the cell it is stepping into (null when standing); goal = where it's headed.
+    cell: { x: entry.col, y: globalRow(side, entry.row) },
+    next: null,
+    goal: null,
     maxHp: base.hp * hpMul,
     hp: base.hp * hpMul,
     damage: base.damage * dmgMul,
@@ -61,14 +67,81 @@ function makeFighter(tuning, side, entry, id, rng) {
 }
 
 const dist = (a, b) => Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+const cellIndex = (x, y) => y * COLS + x;
+const CELLS = COLS * ROWS;
+const STEPS = [[0, 1], [1, 0], [0, -1], [-1, 0], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 
-function nearestEnemy(f, fighters) {
-  let best = null;
-  let bestD = Infinity;
+// Enemies, nearest first (ties keep the lower id).
+function enemiesByDistance(f, fighters) {
+  return fighters
+    .filter((o) => o.alive && o.side !== f.side)
+    .map((o) => ({ o, d: dist(f, o) }))
+    .sort((a, b) => a.d - b.d || a.o.id - b.o.id)
+    .map((e) => e.o);
+}
+
+const nearestEnemy = (f, fighters) => enemiesByDistance(f, fighters)[0] ?? null;
+
+// Cells nobody else stands on or is stepping into, and cells other fighters are headed for.
+function occupancy(f, fighters) {
+  const blocked = new Array(CELLS).fill(false);
+  const claimed = new Array(CELLS).fill(false);
   for (const o of fighters) {
-    if (!o.alive || o.side === f.side) continue;
-    const d = dist(f, o);
-    if (d < bestD - 1e-9) { best = o; bestD = d; } // ties keep the lower id
+    if (!o.alive || o === f) continue;
+    blocked[cellIndex(o.cell.x, o.cell.y)] = true;
+    if (o.next) blocked[cellIndex(o.next.x, o.next.y)] = true;
+    if (o.goal) claimed[cellIndex(o.goal.x, o.goal.y)] = true;
+  }
+  return { blocked, claimed };
+}
+
+// Shortest walking distance from f's cell to every free cell, going around anyone
+// in the way (diagonal steps may not cut past an occupied corner, so two minis can
+// never cross paths). Returns { cost, first } where first is the first step there.
+function walkCosts(f, blocked) {
+  const cost = new Array(CELLS).fill(Infinity);
+  const first = new Array(CELLS).fill(-1);
+  const done = new Array(CELLS).fill(false);
+  const start = cellIndex(f.cell.x, f.cell.y);
+  cost[start] = 0;
+  for (;;) {
+    let cur = -1;
+    for (let i = 0; i < CELLS; i++) if (!done[i] && cost[i] < Infinity && (cur < 0 || cost[i] < cost[cur] - 1e-9)) cur = i;
+    if (cur < 0) break;
+    done[cur] = true;
+    const cx = cur % COLS;
+    const cy = (cur - cx) / COLS;
+    for (const [dx, dy] of STEPS) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) continue;
+      const ni = cellIndex(nx, ny);
+      if (blocked[ni] || done[ni]) continue;
+      if (dx && dy && (blocked[cellIndex(cx + dx, cy)] || blocked[cellIndex(cx, cy + dy)])) continue;
+      const c = cost[cur] + (dx && dy ? Math.SQRT2 : 1);
+      if (c < cost[ni] - 1e-9) {
+        cost[ni] = c;
+        first[ni] = cur === start ? ni : first[cur];
+      }
+    }
+  }
+  return { cost, first, start };
+}
+
+// Where a target will be standing: the cell it's stepping into, else its cell.
+const anchor = (t) => t.next ?? t.cell;
+
+// The nearest free cell from which f can hit target (melee units fan out around the
+// target because cells another fighter is headed for don't count as free).
+function bestCellInReach(f, target, reach, walk, claimed) {
+  const a = anchor(target);
+  let best = -1;
+  for (let i = 0; i < CELLS; i++) {
+    if (walk.cost[i] === Infinity || (claimed[i] && i !== walk.start)) continue;
+    const x = i % COLS;
+    const y = (i - x) / COLS;
+    if (Math.hypot(x - a.x, y - a.y) > reach + 1e-9) continue;
+    if (best < 0 || walk.cost[i] < walk.cost[best] - 1e-9) best = i;
   }
   return best;
 }
@@ -126,18 +199,51 @@ export function simulate(tuning, playerBoard, enemyBoard, seed, { record = true 
         log({ t: round3(t), type: 'special', id: f.id, name: f.special.name });
       }
 
-      if (!f.target || !f.target.alive) f.target = nearestEnemy(f, fighters);
-      const target = f.target;
-      if (!target) continue;
-      const d = dist(f, target);
       const reach = f.range + c.meleeReach;
-      if (d > reach) {
-        // Walk straight at the target, stopping just inside reach.
-        const step = Math.min(f.moveSpeed * dt, d - reach + 0.01);
-        f.x += ((target.x - f.x) / d) * step;
-        f.y += ((target.y - f.y) / d) * step;
+
+      // Mid-step: keep walking into the next cell, then decide again.
+      if (f.next) {
+        const d = Math.hypot(f.next.x - f.x, f.next.y - f.y);
+        const step = f.moveSpeed * dt;
+        if (step >= d) {
+          f.x = f.next.x;
+          f.y = f.next.y;
+          f.cell = f.next;
+          f.next = null;
+        } else {
+          f.x += ((f.next.x - f.x) / d) * step;
+          f.y += ((f.next.y - f.y) / d) * step;
+        }
         continue;
       }
+
+      // Standing on a cell. Keep a target that's in reach; otherwise take the nearest enemy.
+      if (!f.target || !f.target.alive || dist(f, f.target) > reach) f.target = nearestEnemy(f, fighters);
+      const target = f.target;
+      if (!target) continue;
+      if (dist(f, target) > reach) {
+        // Head for the nearest free cell in reach of the target. If every cell
+        // around it is taken or cut off, go for the next-nearest enemy instead.
+        const { blocked, claimed } = occupancy(f, fighters);
+        const walk = walkCosts(f, blocked);
+        let goal = -1;
+        for (const e of enemiesByDistance(f, fighters)) {
+          goal = bestCellInReach(f, e, reach, walk, claimed);
+          if (goal >= 0) { f.target = e; break; }
+        }
+        if (goal < 0 || goal === walk.start) {
+          // Nowhere to go (or already standing in the right spot, waiting for the target to arrive).
+          f.goal = goal === walk.start ? f.cell : null;
+          continue;
+        }
+        const gx = goal % COLS;
+        f.goal = { x: gx, y: (goal - gx) / COLS };
+        const n = walk.first[goal];
+        const nx = n % COLS;
+        f.next = { x: nx, y: (n - nx) / COLS };
+        continue;
+      }
+      f.goal = f.cell;
       f.attackTimer -= dt;
       if (f.attackTimer <= 0) {
         f.attackTimer += f.attackInterval;

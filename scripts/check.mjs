@@ -74,6 +74,29 @@ const state = (page) => page.evaluate(() => window.__game.state());
 const advance = (page, ms) => page.evaluate((t) => window.__game.advance(t), ms);
 const summaries = [];
 
+// Browser vs Node: the fight the browser played must match the same fight simulated here.
+function matchNode(name, end) {
+  const node = simulate(TUNING, end.boards.player, end.boards.enemy, end.seed, { record: false });
+  if (!end.result || end.result.winner !== node.winner || end.result.duration !== node.duration) {
+    failures.push(`[${name}] browser fight (${end.result?.winner} in ${end.result?.duration}s) differs from Node sim (${node.winner} in ${node.duration}s)`);
+  } else {
+    summaries.push(`[${name}] browser fight matches Node sim: ${node.winner} in ${node.duration}s`);
+  }
+}
+
+// Closest two living minis, in cells.
+function closestPair(units) {
+  const alive = units.filter((u) => u.hp > 0);
+  let best = Infinity;
+  for (let a = 0; a < alive.length; a++) for (let b = a + 1; b < alive.length; b++) best = Math.min(best, Math.hypot(alive[a].x - alive[b].x, alive[a].y - alive[b].y));
+  return best;
+}
+
+async function finish(page) {
+  for (let i = 0; i < 60 && (await state(page)).screen === 'battle'; i++) await advance(page, 1000);
+  await page.waitForTimeout(100);
+}
+
 // One full fight: board, mid-fight, result; then "Again" goes back to the board.
 async function fightRun(page, name, click) {
   await advance(page, 300);
@@ -89,28 +112,58 @@ async function fightRun(page, name, click) {
   const mid = await state(page);
   if (!mid.battle || mid.battle.units.every((u) => u.animation === 'idle')) failures.push(`[${name}] nobody is walking or fighting mid-battle`);
   if (mid.battle && JSON.stringify(mid.battle.units.map((u) => u.hp)) === JSON.stringify(early.battle.units.map((u) => u.hp))) failures.push(`[${name}] no damage after 6 s`);
-  for (let i = 0; i < 60 && (await state(page)).screen === 'battle'; i++) await advance(page, 1000);
-  await page.waitForTimeout(100);
+  await finish(page);
   await shot(page, name, '3-result');
   const end = await state(page);
   summaries.push(`## ${name}\n${await page.evaluate(() => window.__game.stateText())}`);
   if (end.screen !== 'result') failures.push(`[${name}] battle never ended (screen ${end.screen})`);
   if (!(await page.isVisible('#banner'))) failures.push(`[${name}] result banner not visible`);
-  // The browser's fight must match the same fight simulated here in Node.
-  const node = simulate(TUNING, [{ unit: 'knight', row: 0, col: 2 }], [{ unit: 'skeletonWarrior', row: 0, col: 2 }], end.seed, { record: false });
-  if (!end.result || end.result.winner !== node.winner || end.result.duration !== node.duration) {
-    failures.push(`[${name}] browser fight (${end.result?.winner} in ${end.result?.duration}s) differs from Node sim (${node.winner} in ${node.duration}s)`);
-  } else {
-    summaries.push(`[${name}] browser fight matches Node sim: ${node.winner} in ${node.duration}s`);
-  }
+  matchNode(name, end);
   await click('#fight');
   await advance(page, 300);
   const again = await state(page);
   if (again.screen !== 'setup' || again.minis !== 2 || again.seed !== end.seed + 1) failures.push(`[${name}] Again did not reset the board (${again.screen}, ${again.minis} minis, seed ${again.seed})`);
 }
 
-await run('laptop', { viewport: { width: 1280, height: 720 } }, (page, name) => fightRun(page, name, (sel) => page.click(sel)));
-await run('phone', { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }, (page, name) => fightRun(page, name, (sel) => page.tap(sel)));
+// 3v3 where the Knights start queued in one column: they should fan out across
+// the enemy front instead of lining up behind each other, and never overlap.
+const SPREAD_PLAYER = [{ unit: 'knight', row: 0, col: 2 }, { unit: 'knight', row: 1, col: 2 }, { unit: 'knight', row: 2, col: 2 }];
+const SPREAD_ENEMY = [{ unit: 'skeletonWarrior', row: 1, col: 2 }, { unit: 'skeletonWarrior', row: 2, col: 1 }, { unit: 'skeletonWarrior', row: 2, col: 3 }];
+async function spreadRun(page, name, click) {
+  await page.evaluate(([p, e]) => window.__game.setBoards(p, e), [SPREAD_PLAYER, SPREAD_ENEMY]);
+  await advance(page, 300);
+  const setup = await state(page);
+  if (setup.minis !== 6) failures.push(`[${name}] 3v3: expected 6 minis on the board, got ${setup.minis}`);
+  await click('#fight');
+  let closest = Infinity;
+  for (let i = 0; i < 40; i++) {
+    const s = await advance(page, 100);
+    closest = Math.min(closest, closestPair(s.battle.units));
+  }
+  await shot(page, name, '4-3v3-mid-fight');
+  const mid = await state(page);
+  const knights = mid.battle.units.filter((u) => u.side === 'player' && u.hp > 0);
+  const columns = new Set(knights.map((u) => Math.round(u.x)));
+  if (columns.size < 3) failures.push(`[${name}] 3v3: Knights did not spread out (columns ${[...columns].join(', ')})`);
+  await finish(page);
+  const end = await state(page);
+  if (closest < 0.6) failures.push(`[${name}] 3v3: two minis came within ${closest.toFixed(2)} cells in the first 4 s`);
+  summaries.push(`[${name}] 3v3 at 4 s: Knights in ${columns.size} different columns; closest two minis ${closest.toFixed(2)} cells apart`);
+  summaries.push(`## ${name} 3v3\n${await page.evaluate(() => window.__game.stateText())}`);
+  if (end.screen !== 'result') failures.push(`[${name}] 3v3 battle never ended (screen ${end.screen})`);
+  matchNode(`${name} 3v3`, end);
+}
+
+await run('laptop', { viewport: { width: 1280, height: 720 } }, async (page, name) => {
+  const click = (sel) => page.click(sel);
+  await fightRun(page, name, click);
+  await spreadRun(page, name, click);
+});
+await run('phone', { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }, async (page, name) => {
+  const click = (sel) => page.tap(sel);
+  await fightRun(page, name, click);
+  await spreadRun(page, name, click);
+});
 
 await browser.close();
 await server?.close();

@@ -15,8 +15,8 @@ const quality = { pixelRatio: 2, shadowMap: phone ? 1024 : 2048 };
 
 // Tonight's board: one Knight against one Skeleton Warrior, both front and centre.
 // Local rows: 0 = front. The shop and placement replace this (PLAN.md).
-const PLAYER_BOARD = [{ unit: 'knight', row: 0, col: 2 }];
-const ENEMY_BOARD = [{ unit: 'skeletonWarrior', row: 0, col: 2 }];
+let PLAYER_BOARD = [{ unit: 'knight', row: 0, col: 2 }];
+let ENEMY_BOARD = [{ unit: 'skeletonWarrior', row: 0, col: 2 }];
 let seed = Number(params.get('seed') ?? 1);
 
 const canvas = document.getElementById('game');
@@ -137,6 +137,7 @@ function state() {
     minis: units.count,
     battle: playback.state(),
     result: result && screen === 'result' ? { winner: result.winner, duration: result.duration, survivors: result.survivors } : null,
+    boards: { player: PLAYER_BOARD, enemy: ENEMY_BOARD },
     sim: result ? { winner: result.winner, duration: result.duration } : null,
   };
 }
@@ -148,7 +149,7 @@ function stateText() {
     `screen: ${s.screen} (models ${s.loaded ? 'loaded' : 'loading'}, mug ${s.propsLoaded ? 'loaded' : 'loading'})`,
     `time: ${s.time}s, seed ${s.seed}`,
     `board: player ${PLAYER_BOARD.map((e) => `${e.unit}@r${e.row}c${e.col}`).join(', ')} vs enemy ${ENEMY_BOARD.map((e) => `${e.unit}@r${e.row}c${e.col}`).join(', ')}; ${s.minis} minis on the board`,
-    b ? `battle: t=${b.t}s; ${b.units.map((u) => `${u.unit} ${u.hp}hp ${u.animation}`).join('; ')}` : 'battle: not running',
+    b ? `battle: t=${b.t}s; ${b.units.map((u) => `${u.unit} ${u.hp}hp ${u.animation} @${u.x},${u.y}`).join('; ')}` : 'battle: not running',
     s.sim ? `sim decided: ${s.sim.winner} in ${s.sim.duration}s` : 'sim decided: nothing yet',
     s.result ? `result: ${s.result.winner}, survivors ${s.result.survivors.map((x) => `${x.unit} ${x.hp}hp`).join(', ') || 'none'}` : 'result: none',
     `look: pixel ratio ${renderer.getPixelRatio()}, shadow map ${quality.shadowMap}, tilt-shift on`,
@@ -159,6 +160,13 @@ window.__game = {
   test: TEST,
   state,
   stateText,
+  // Test hook: put these boards out (local rows, as in tuning.rounds) and go back to setup.
+  setBoards(player, enemy) {
+    PLAYER_BOARD = player;
+    ENEMY_BOARD = enemy;
+    toSetup();
+    return state();
+  },
   // Test clock: advance simulated time in fixed steps, then draw one frame.
   advance(ms) {
     const n = Math.round(ms / 1000 / STEP);

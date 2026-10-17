@@ -97,9 +97,10 @@ export function createPlayback(scene, units, camera) {
     },
     state() {
       if (!result) return null;
+      const frame = result.frames[Math.min(result.frames.length - 1, Math.floor(t / result.dt))];
       return {
         t: Math.round(t * 100) / 100,
-        units: views.map((v, i) => ({ unit: v.unit, side: v.side, animation: v.animation, hp: result.frames[Math.min(result.frames.length - 1, Math.floor(t / result.dt))][i][2] })),
+        units: views.map((v, i) => ({ unit: v.unit, side: v.side, animation: v.animation, hp: frame[i][2], x: frame[i][0], y: frame[i][1] })),
       };
     },
   };

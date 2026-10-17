@@ -4,7 +4,7 @@
 // arrive with the PLAN items that build the full roster, boards and shop.
 import { writeFileSync } from 'node:fs';
 import { TUNING } from '../src/tuning.js';
-import { simulate, COLS, ROWS_PER_SIDE } from '../src/sim/battle.js';
+import { simulate, makeRng, COLS, ROWS_PER_SIDE } from '../src/sim/battle.js';
 
 const SEEDS_PER_PLACEMENT = Number(process.argv.find((a) => a.startsWith('--seeds='))?.slice(8) ?? 10);
 const OUT = 'BALANCE.md';
@@ -69,12 +69,62 @@ function determinismCheck() {
   return { ok: true, count: 200 };
 }
 
+// Spacing: random 5v5 boards (any units, any free cells, some 2-stars), recorded
+// tick by tick, measuring the closest two living minis ever get.
+const SPACING_FIGHTS = 1000;
+const MIN_SPACING = 0.6;
+function randomBoard(rng, keys) {
+  const free = cells.map((c) => ({ ...c }));
+  const board = [];
+  for (let i = 0; i < 5; i++) {
+    const c = free.splice(Math.floor(rng() * free.length), 1)[0];
+    board.push({ unit: keys[Math.floor(rng() * keys.length)], star: rng() < 0.2 ? 2 : 1, ...c });
+  }
+  return board;
+}
+function spacingCheck() {
+  const rng = makeRng(12345);
+  const playerKeys = Object.keys(TUNING.units);
+  const enemyKeys = Object.keys(TUNING.enemies);
+  let closest = Infinity;
+  let worst = null;
+  let tooClose = 0;
+  const durations = [];
+  let timeouts = 0;
+  let nondeterministic = null;
+  for (let i = 0; i < SPACING_FIGHTS; i++) {
+    const p = randomBoard(rng, playerKeys);
+    const e = randomBoard(rng, enemyKeys);
+    const seed = 100000 + i;
+    const r = simulate(TUNING, p, e, seed);
+    if (i < 50 && JSON.stringify(r) !== JSON.stringify(simulate(TUNING, p, e, seed))) nondeterministic = seed;
+    durations.push(r.duration);
+    if (r.timedOut) timeouts++;
+    let fightClosest = Infinity;
+    for (const fr of r.frames) {
+      for (let a = 0; a < fr.length; a++) {
+        if (fr[a][2] <= 0) continue;
+        for (let b = a + 1; b < fr.length; b++) {
+          if (fr[b][2] <= 0) continue;
+          const d = Math.hypot(fr[a][0] - fr[b][0], fr[a][1] - fr[b][1]);
+          if (d < fightClosest) fightClosest = d;
+        }
+      }
+    }
+    if (fightClosest < MIN_SPACING) tooClose++;
+    if (fightClosest < closest) { closest = fightClosest; worst = seed; }
+  }
+  return { n: SPACING_FIGHTS, nondeterministic, closest, worst, tooClose, ok: tooClose === 0, avg: mean(durations), timeouts };
+}
+
 const matchups = [
   summarise('1-star vs 1-star', duel('knight', 'skeletonWarrior'), 'Knight', 'Skeleton Warrior'),
   summarise('2-star Knight vs 1-star', duel('knight', 'skeletonWarrior', 2, 1), 'Knight (2-star)', 'Skeleton Warrior'),
 ];
 const det = determinismCheck();
-const total = matchups.reduce((s, m) => s + m.n, 0);
+const spacing = spacingCheck();
+if (det.ok && spacing.nondeterministic !== null) Object.assign(det, { ok: false, seed: spacing.nondeterministic });
+const total = matchups.reduce((s, m) => s + m.n, 0) + spacing.n;
 const tg = TUNING.targets;
 
 // Flags in plain words.
@@ -90,6 +140,8 @@ const base = matchups[0];
 if (base.winRate > tg.unitWinRate[1] || base.winRate < tg.unitWinRate[0]) {
   flags.push(`In the straight 1-star duel the Knight wins ${pct(base.winRate)} — outside the ${pct(tg.unitWinRate[0])}-${pct(tg.unitWinRate[1])} band. This is one duel, not a mixed-board win rate, so treat it as a hint, not a verdict.`);
 }
+if (!spacing.ok) flags.push(`MINIS OVERLAP: in ${spacing.tooClose} of ${spacing.n} random 5v5 fights two living minis came closer than ${MIN_SPACING} cells (closest ${spacing.closest.toFixed(2)}, seed ${spacing.worst}).`);
+if (spacing.timeouts) flags.push(`${spacing.timeouts} of ${spacing.n} random 5v5 fights timed out at ${TUNING.combat.timeoutSeconds} s (random boards, so a hint only).`);
 if (!det.ok) flags.push(`DETERMINISM BROKEN: seed ${det.seed} gave two different results. Nothing else in this file can be trusted until that's fixed.`);
 
 const headline = (() => {
@@ -145,16 +197,20 @@ const md = [
   '',
   '## Not measured yet',
   '',
-  '- Win rate per unit in mixed boards, per 2-unit pair, and per round: these need the other units\' specials and a set of "reasonable player boards" (PLAN.md, items S1-S3).',
+  '- Win rate per unit in mixed boards, per 2-unit pair, and per round: these need the other units\' specials and a set of "reasonable player boards" (PLAN.md, items A2-A3).',
   `- Specials not built in the sim yet: ${Object.values({ ...TUNING.units, ...TUNING.enemies }).filter((u) => !u.special.built).map((u) => `${u.name} (${u.special.name})`).join(', ')}.`,
   '',
   '## Sim health',
   '',
-  det.ok ? `- Deterministic: ${det.count} sampled fights replayed twice gave identical results.` : `- NOT deterministic (seed ${det.seed}).`,
+  spacing.ok
+    ? `- Spacing: in ${spacing.n} random 5v5 fights no two living minis ever came closer than ${MIN_SPACING} cells (closest ${spacing.closest.toFixed(2)} cells). Passes.`
+    : `- Spacing FAILS: ${spacing.tooClose} of ${spacing.n} random 5v5 fights had two living minis closer than ${MIN_SPACING} cells (closest ${spacing.closest.toFixed(2)}, seed ${spacing.worst}).`,
+  `- Random 5v5 fights (specials not all built yet, so lengths will move): average ${sec(spacing.avg)}, ${spacing.timeouts} timeouts.`,
+  det.ok ? `- Deterministic: ${det.count} sampled 1v1 fights and 50 random 5v5 fights replayed twice gave identical results.` : `- NOT deterministic (seed ${det.seed}).`,
   '',
 ].join('\n');
 
 writeFileSync(OUT, md);
 console.log(md);
 console.log(`\nWrote ${OUT}`);
-process.exit(det.ok ? 0 : 1);
+process.exit(det.ok && spacing.ok ? 0 : 1);
