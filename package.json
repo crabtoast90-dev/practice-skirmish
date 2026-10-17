@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "node scripts/check.mjs",
-    "sim": "node scripts/sim.mjs"
+    "sim": "node scripts/sim.mjs",
+    "log-time": "node scripts/log-time.mjs"
   },
   "dependencies": {
     "three": "0.186.1"
