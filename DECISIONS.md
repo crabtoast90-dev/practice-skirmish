@@ -14,3 +14,4 @@ One dated line per decision the user makes.
 - 2026-10-17: Losing a round costs a life and the run moves on to the next round (no replaying the lost round). Replacing B2's "replay the round".
 - 2026-10-17: "Retry pays income again" is void: there are no retries any more, so each round pays its income once.
 - 2026-10-17: No board-size cap beyond the 15 cells of your half. Round 5 difficulty must come from tuning (A4), not a unit limit.
+- 2026-10-17: Victory = beating round 5 (the boss). Losses in rounds 1-4 cost a life and move you on; losing to the boss costs a life and you fight it again, until you beat it (Victory) or run out of lives (Defeat).
