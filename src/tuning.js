@@ -117,5 +117,14 @@ export const TUNING = {
     unitWinRate: [0.4, 0.6],
     round1ClearRate: 0.95,
     round5ClearRate: 0.33,
+    round5Tolerance: 0.1, // round 5 clear rate is "far from" target when off by more than this
+    pairWinRateMax: 0.75, // a 2-unit pair winning more than this head-to-head "always wins"
+    unitNeverWins: 0.15, // a unit whose boards win less than this head-to-head "never wins"
+    // How npm run sim builds "reasonable player boards" (src/sim/boards.js). Not game rules.
+    boardGen: {
+      boardsPerRound: 2000, // sensible players simulated; each gives one board per round
+      rerollChance: 0.25, // chance to reroll instead of buying when nothing merges
+      maxRerollsPerRound: 2, // each player rerolls at most 0 to this many times a round
+    },
   },
 };

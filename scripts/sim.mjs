@@ -1,13 +1,16 @@
 // npm run sim: run thousands of battles headlessly and write BALANCE.md.
-// Tonight's scope: one matchup (Knight vs Skeleton Warrior) across every
-// placement pair and many seeds. Per-unit, per-pair and per-round sections
-// arrive with the PLAN items that build the full roster, boards and shop.
+// The main report runs "reasonable player boards" (src/sim/boards.js) against
+// each round's skeletons and against each other: per-unit and per-pair win
+// rates, per-round clear rates, fight length, timeouts. Below that: the
+// Knight vs Skeleton Warrior duel, the special check, whole bot runs, the
+// shop's odds and sim health.
 import { writeFileSync } from 'node:fs';
 import { TUNING } from '../src/tuning.js';
 import { simulate, makeRng, COLS, ROWS_PER_SIDE } from '../src/sim/battle.js';
 import { rollOffers } from '../src/game/shop.js';
 import { createRun } from '../src/game/run.js';
 import { botShop } from '../src/game/bot.js';
+import { reasonableBoards } from '../src/sim/boards.js';
 
 const SEEDS_PER_PLACEMENT = Number(process.argv.find((a) => a.startsWith('--seeds='))?.slice(8) ?? 10);
 const OUT = 'BALANCE.md';
@@ -31,6 +34,7 @@ function duel(a, b, aStar = 1, bStar = 1) {
 }
 
 const pct = (n) => `${Math.round(n * 100)}%`;
+const pct1 = (n) => `${(n * 100).toFixed(1)}%`; // for numbers judged against a band edge
 const sec = (n) => `${n.toFixed(1)} s`;
 const mean = (xs) => xs.reduce((s, x) => s + x, 0) / (xs.length || 1);
 
@@ -136,7 +140,7 @@ const matchups = [
 const det = determinismCheck();
 const spacing = spacingCheck();
 if (det.ok && spacing.nondeterministic !== null) Object.assign(det, { ok: false, seed: spacing.nondeterministic });
-const total = matchups.reduce((s, m) => s + m.n, 0) + spacing.n;
+const total = () => matchups.reduce((s, m) => s + m.n, 0) + spacing.n + reasonableFights + runStats.fights * RUNS;
 const tg = TUNING.targets;
 
 // Flags in plain words.
@@ -174,7 +178,103 @@ const runStats = (() => {
 })();
 const firstTryRate = (i) => runStats.firstTry[i] / (runStats.reached[i] || 1);
 
+// Reasonable player boards: thousands of sensible players shop through every
+// round with the real shop. Each round's board fights that round's skeletons
+// (clear rate) and the next player's board from the same round (head-to-head
+// at equal gold: each board fights once on each side, so 50% is even). Unit
+// and pair win rates come from head-to-head, where the 40-60% band means something.
+const GEN = tg.boardGen;
+const playerKeys = Object.keys(TUNING.units);
+const unitName = (k) => TUNING.units[k].name;
+const pairId = (a, b) => (playerKeys.indexOf(a) <= playerKeys.indexOf(b) ? `${a}+${b}` : `${b}+${a}`);
+const tally = () => ({ n: 0, score: 0 });
+const add = (t, score) => { t.n += 1; t.score += score; };
+const rate = (t) => t.score / (t.n || 1);
+const lengthStats = (fs) => {
+  const d = fs.map((f) => f.duration).sort((x, y) => x - y);
+  const n = d.length;
+  return {
+    n, avg: mean(d), p10: d[Math.floor(n * 0.1)], p90: d[Math.floor(n * 0.9)],
+    short: d.filter((x) => x < tg.fightSeconds[0]).length / n,
+    long: d.filter((x) => x > tg.fightSeconds[1]).length / n,
+    timeouts: fs.filter((f) => f.timedOut).length,
+  };
+};
+const genStarted = Date.now();
+const boardsByRound = reasonableBoards(TUNING, GEN.boardsPerRound, { seed: 1 });
+const unitH2H = Object.fromEntries(playerKeys.map((k) => [k, tally()]));
+const pairH2H = {};
+const unitPve = Object.fromEntries(playerKeys.map((k) => [k, TUNING.rounds.map(() => tally())]));
+const reasonable = boardsByRound.map((boards, i) => {
+  const n = boards.length;
+  const pve = boards.map((b, j) => simulate(TUNING, b.board, TUNING.rounds[i].board, 500000 + i * 10000 + j, { record: false }));
+  const h2h = boards.map((b, j) => simulate(TUNING, b.board, boards[(j + 1) % n].board, 700000 + i * 10000 + j, { record: false }));
+  const sideScore = (r, side) => (r.winner === 'draw' ? 0.5 : r.winner === side ? 1 : 0);
+  boards.forEach((b, j) => {
+    const types = [...new Set(b.board.map((u) => u.unit))];
+    const twoStars = b.board.filter((u) => u.star === 2).map((u) => u.unit);
+    const cleared = pve[j].winner === 'player' ? 1 : 0;
+    for (const score of [sideScore(h2h[j], 'player'), sideScore(h2h[(j - 1 + n) % n], 'enemy')]) {
+      for (const a of types) add(unitH2H[a], score);
+      for (let x = 0; x < types.length; x++) for (let y = x + 1; y < types.length; y++) add((pairH2H[pairId(types[x], types[y])] ??= tally()), score);
+      for (const a of twoStars) add((pairH2H[pairId(a, a)] ??= tally()), score);
+    }
+    for (const a of types) add(unitPve[a][i], cleared);
+  });
+  return {
+    round: i + 1, name: TUNING.rounds[i].name, n,
+    units: mean(boards.map((b) => b.board.length)),
+    twoStars: mean(boards.map((b) => b.board.filter((u) => u.star === 2).length)),
+    spent: mean(boards.map((b) => b.spent)),
+    clear: pve.filter((r) => r.winner === 'player').length / n,
+    pve: lengthStats(pve),
+    h2h: lengthStats(h2h),
+  };
+});
+const reasonableSeconds = (Date.now() - genStarted) / 1000;
+const reasonableFights = reasonable.reduce((s, r) => s + r.pve.n + r.h2h.n, 0);
+const unitRows = playerKeys.map((k) => {
+  const rounds = unitPve[k].filter((t) => t.n > 0);
+  const boardsWith = unitPve[k].reduce((s, t) => s + t.n, 0);
+  return { k, name: unitName(k), h2h: rate(unitH2H[k]), n: unitH2H[k].n, share: boardsWith / (GEN.boardsPerRound * TUNING.rounds.length), pve: mean(rounds.map(rate)) };
+}).sort((a, b) => b.h2h - a.h2h);
+const PAIR_MIN = 100; // fewer board appearances than this: too few to judge
+const pairCell = (t) => (t && t.n >= PAIR_MIN ? pct(rate(t)) : '-');
+const pairRows = Object.entries(pairH2H).map(([id, t]) => {
+  const [a, b] = id.split('+');
+  return { a, b, name: a === b ? `2-star ${unitName(a)}` : `${unitName(a)} + ${unitName(b)}`, rate: rate(t), n: t.n };
+});
+const pveAvg = mean(reasonable.map((r) => r.pve.avg));
+const h2hAvg = mean(reasonable.map((r) => r.h2h.avg));
+const pveTimeouts = reasonable.reduce((s, r) => s + r.pve.timeouts, 0);
+const h2hTimeouts = reasonable.reduce((s, r) => s + r.h2h.timeouts, 0);
+const r1 = reasonable[0];
+const r5 = reasonable[reasonable.length - 1];
+
 const flags = [];
+// Reasonable-board flags first: they're the ones that judge the targets.
+for (const u of unitRows) {
+  if (u.h2h < tg.unitNeverWins) flags.push(`${u.name} basically never wins: boards with one win ${pct1(u.h2h)} head-to-head.`);
+  else if (u.h2h > tg.unitWinRate[1]) flags.push(`${u.name} is too strong: boards with one win ${pct1(u.h2h)} head-to-head (target ${pct(tg.unitWinRate[0])}-${pct(tg.unitWinRate[1])}).`);
+  else if (u.h2h < tg.unitWinRate[0]) flags.push(`${u.name} is too weak: boards with one win ${pct1(u.h2h)} head-to-head (target ${pct(tg.unitWinRate[0])}-${pct(tg.unitWinRate[1])}).`);
+}
+for (const p of pairRows.filter((q) => q.n >= PAIR_MIN && q.rate > tg.pairWinRateMax).sort((x, y) => y.rate - x.rate)) {
+  flags.push(`${p.name} nearly always wins: ${pct(p.rate)} head-to-head over ${p.n} boards (flag above ${pct(tg.pairWinRateMax)}).`);
+}
+if (r1.clear < tg.round1ClearRate) flags.push(`Only ${pct(r1.clear)} of reasonable boards clear round 1 (target ~${pct(tg.round1ClearRate)}).`);
+if (Math.abs(r5.clear - tg.round5ClearRate) > tg.round5Tolerance) {
+  flags.push(`${pct(r5.clear)} of reasonable boards beat the round 5 boss (target ~${pct(tg.round5ClearRate)}): ${r5.clear > tg.round5ClearRate ? 'the boss is too easy' : 'the boss is too hard'} for what ${Math.round(r5.spent)} gold buys (${r5.units.toFixed(1)} units, ${r5.twoStars.toFixed(1)} of them 2-stars).`);
+}
+const easyRounds = reasonable.slice(1, -1).filter((r) => r.clear > 0.98).map((r) => r.round);
+if (easyRounds.length) flags.push(`Round${easyRounds.length > 1 ? 's' : ''} ${easyRounds.join(', ')} ${easyRounds.length > 1 ? 'are' : 'is'} cleared by nearly every reasonable board, so they don't threaten a life.`);
+for (const r of reasonable) {
+  if (r.pve.avg < tg.fightSeconds[0]) flags.push(`${r.name} fights are too short: ${sec(r.pve.avg)} on average (target ${tg.fightSeconds[0]}-${tg.fightSeconds[1]} s).`);
+  if (r.pve.avg > tg.fightSeconds[1]) flags.push(`${r.name} fights drag: ${sec(r.pve.avg)} on average (target ${tg.fightSeconds[0]}-${tg.fightSeconds[1]} s).`);
+  if (r.h2h.avg < tg.fightSeconds[0]) flags.push(`Head-to-head fights at round ${r.round} gold are too short: ${sec(r.h2h.avg)} on average.`);
+  if (r.h2h.avg > tg.fightSeconds[1]) flags.push(`Head-to-head fights at round ${r.round} gold drag: ${sec(r.h2h.avg)} on average.`);
+}
+if (pveTimeouts) flags.push(`${pveTimeouts} reasonable-board fights against the skeletons timed out at ${TUNING.combat.timeoutSeconds} s (a timeout costs the player a life).`);
+if (h2hTimeouts) flags.push(`${h2hTimeouts} head-to-head fights timed out at ${TUNING.combat.timeoutSeconds} s.`);
 for (const m of matchups) {
   if (m.avg < tg.fightSeconds[0]) flags.push(`${m.playerName} vs ${m.enemyName}: fights are too short (average ${sec(m.avg)}, target ${tg.fightSeconds[0]}-${tg.fightSeconds[1]} s).`);
   if (m.avg > tg.fightSeconds[1]) flags.push(`${m.playerName} vs ${m.enemyName}: fights drag (average ${sec(m.avg)}, target ${tg.fightSeconds[0]}-${tg.fightSeconds[1]} s).`);
@@ -183,9 +283,6 @@ for (const m of matchups) {
   if (m.winRate === 0) flags.push(`${m.playerName} never beats a ${m.enemyName}.`);
 }
 const base = matchups[0];
-if (base.winRate > tg.unitWinRate[1] || base.winRate < tg.unitWinRate[0]) {
-  flags.push(`In the straight 1-star duel the Knight wins ${pct(base.winRate)} — outside the ${pct(tg.unitWinRate[0])}-${pct(tg.unitWinRate[1])} band. This is one duel, not a mixed-board win rate, so treat it as a hint, not a verdict.`);
-}
 if (!spacing.ok) flags.push(`MINIS OVERLAP: in ${spacing.tooClose} of ${spacing.n} random 5v5 fights two living minis came closer than ${MIN_SPACING} cells (closest ${spacing.closest.toFixed(2)}, seed ${spacing.worst}).`);
 const allUnits = { ...TUNING.units, ...TUNING.enemies };
 const specialRows = Object.entries(allUnits).map(([k, u]) => {
@@ -211,14 +308,23 @@ for (const r of specialRows) {
 if (spacing.timeouts) flags.push(`${spacing.timeouts} of ${spacing.n} random 5v5 fights timed out at ${TUNING.combat.timeoutSeconds} s (random boards, so a hint only).`);
 if (!det.ok) flags.push(`DETERMINISM BROKEN: seed ${det.seed} gave two different results. Nothing else in this file can be trusted until that's fixed.`);
 
-if (firstTryRate(runStats.nRounds - 1) > tg.round5ClearRate + 0.2) flags.push(`The simple bot beats the round 5 boss first try ${pct(firstTryRate(runStats.nRounds - 1))} of the time (target ~${pct(tg.round5ClearRate)}) and wins ${pct(runStats.victory)} of whole runs: the skeleton boards are too easy for what the gold buys (it fields ${runStats.units.toFixed(1)} units by the end; nothing limits board size).`);
-if (firstTryRate(0) < tg.round1ClearRate - 0.1) flags.push(`The simple bot only clears round 1 first try ${pct(firstTryRate(0))} of the time (target ~${pct(tg.round1ClearRate)}).`);
-
 const headline = (() => {
-  const b = matchups[0];
-  const who = b.winRate >= 0.5 ? 'Knight' : 'Skeleton Warrior';
-  const rate = b.winRate >= 0.5 ? b.winRate : b.lossRate;
-  return `One Knight vs one Skeleton Warrior: the **${who} wins ${pct(rate)}** of ${b.n} fights; fights average **${sec(b.avg)}** (most between ${sec(b.p10)} and ${sec(b.p90)}).`;
+  const best = unitRows[0];
+  const worst = unitRows[unitRows.length - 1];
+  const verdict = [];
+  if (r5.clear > tg.round5ClearRate + tg.round5Tolerance) verdict.push('the skeletons are too easy');
+  if (r5.clear < tg.round5ClearRate - tg.round5Tolerance) verdict.push('the boss is too hard');
+  if (r1.clear < tg.round1ClearRate) verdict.push('round 1 is too hard');
+  if (best.h2h > tg.unitWinRate[1]) verdict.push(`${best.name} is too strong`);
+  if (worst.h2h < tg.unitWinRate[0]) verdict.push(`${worst.name} is too weak`);
+  if (pveAvg < tg.fightSeconds[0]) verdict.push('fights against them are over too fast');
+  if (pveAvg > tg.fightSeconds[1]) verdict.push('fights against them drag');
+  const sentence = verdict.length ? `In short: ${verdict.join(', ')}.` : 'In short: everything is on target.';
+  return [
+    `${sentence} Reasonable player boards clear round 1 **${pct(r1.clear)}** of the time (target ~${pct(tg.round1ClearRate)}) and beat the round 5 boss **${pct(r5.clear)}** (target ~${pct(tg.round5ClearRate)}).`,
+    `Head-to-head at equal gold the strongest unit is the **${best.name} (${pct1(best.h2h)})** and the weakest the **${worst.name} (${pct1(worst.h2h)})** (target ${pct(tg.unitWinRate[0])}-${pct(tg.unitWinRate[1])}).`,
+    `Fights against the skeletons average **${sec(pveAvg)}** (target ${tg.fightSeconds[0]}-${tg.fightSeconds[1]} s) with ${pveTimeouts} timeouts.`,
+  ].join(' ');
 })();
 
 const row = (m) =>
@@ -245,7 +351,7 @@ const goldByRound = eco.incomePerRound.map((g) => (goldSoFar += g));
 const md = [
   '# Balance report',
   '',
-  `Generated by \`npm run sim\` on ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC from the numbers in \`src/tuning.js\`. ${total} fights in ${((Date.now() - started) / 1000).toFixed(1)} s. Don't edit by hand; rerun the sim.`,
+  `Generated by \`npm run sim\` on ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC from the numbers in \`src/tuning.js\`. ${total()} fights in ${((Date.now() - started) / 1000).toFixed(1)} s. Don't edit by hand; rerun the sim.`,
   '',
   '## Headline',
   '',
@@ -254,6 +360,54 @@ const md = [
   '## Flags',
   '',
   ...(flags.length ? flags.map((f) => `- ${f}`) : ['- Nothing out of line.']),
+  '',
+  `## 1. Unit win rates (reasonable boards)`,
+  '',
+  `${GEN.boardsPerRound} sensible players shop through all ${TUNING.rounds.length} rounds with the real shop (gold, offers and odds from tuning). They buy a merge whenever one shows up, otherwise any offer they can afford, sometimes reroll instead (chance ${pct(GEN.rerollChance)}, up to ${GEN.maxRerollsPerRound} a round), and spend down every round. Tanks and bruisers stand in front, the Rogue in the middle, Mage and Ranger at the back. That gives ${GEN.boardsPerRound} boards per round.`,
+  '',
+  `"Head-to-head" puts each board against another player's board from the same round (same gold), once on each side: 50% is even, the target band is ${pct(tg.unitWinRate[0])}-${pct(tg.unitWinRate[1])}. A unit's number is how often boards that have it win. "Clears skeletons" is the share of boards with it that beat that round's skeleton board, averaged over rounds.`,
+  '',
+  '| unit | cost | on how many boards | head-to-head win rate | clears skeletons |',
+  '| --- | --- | --- | --- | --- |',
+  ...unitRows.map((u) => `| ${u.name} | ${TUNING.units[u.k].cost} | ${pct(u.share)} | ${pct1(u.h2h)} | ${pct(u.pve)} |`),
+  '',
+  '## 2. Pairs (head-to-head)',
+  '',
+  `How often a board with both units wins head-to-head. The diagonal is a board with that unit as a 2-star. "-" = fewer than ${PAIR_MIN} boards to judge from. Flagged above ${pct(tg.pairWinRateMax)}.`,
+  '',
+  `| | ${playerKeys.map(unitName).join(' | ')} |`,
+  `| --- | ${playerKeys.map(() => '---').join(' | ')} |`,
+  ...playerKeys.map((a) => `| **${unitName(a)}** | ${playerKeys.map((b) => pairCell(pairH2H[pairId(a, b)])).join(' | ')} |`),
+  '',
+  `Strongest pairs: ${pairRows.filter((p) => p.n >= PAIR_MIN && p.a !== p.b).sort((x, y) => y.rate - x.rate).slice(0, 3).map((p) => `${p.name} ${pct(p.rate)}`).join(', ')}. Weakest: ${pairRows.filter((p) => p.n >= PAIR_MIN && p.a !== p.b).sort((x, y) => x.rate - y.rate).slice(0, 3).map((p) => `${p.name} ${pct(p.rate)}`).join(', ')}.`,
+  '',
+  '## 3. Rounds (reasonable boards vs the skeletons)',
+  '',
+  'Each round\'s boards fight that round\'s scripted skeleton board once. A player who never loses a round would have this board.',
+  '',
+  '| round | gold spent so far | units on board | of them 2-stars | clears it |',
+  '| --- | --- | --- | --- | --- |',
+  ...reasonable.map((r) => `| ${r.name} | ${r.spent.toFixed(1)} | ${r.units.toFixed(1)} | ${r.twoStars.toFixed(1)} | ${pct(r.clear)} |`),
+  '',
+  '## 4. Fight length',
+  '',
+  `Target ${tg.fightSeconds[0]}-${tg.fightSeconds[1]} s. "Too short" / "too long" = share of fights outside that band.`,
+  '',
+  '| round | vs skeletons: average | middle 80% | too short | too long | head-to-head: average | middle 80% | too short | too long |',
+  '| --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+  ...reasonable.map((r) => `| ${r.name} | ${sec(r.pve.avg)} | ${sec(r.pve.p10)}-${sec(r.pve.p90)} | ${pct(r.pve.short)} | ${pct(r.pve.long)} | ${sec(r.h2h.avg)} | ${sec(r.h2h.p10)}-${sec(r.h2h.p90)} | ${pct(r.h2h.short)} | ${pct(r.h2h.long)} |`),
+  '',
+  `All rounds: ${sec(pveAvg)} against the skeletons, ${sec(h2hAvg)} head-to-head.`,
+  '',
+  '## 5. Timeouts',
+  '',
+  `A fight still going at ${TUNING.combat.timeoutSeconds} s is a draw, which costs the player a life.`,
+  '',
+  '| round | vs skeletons | head-to-head |',
+  '| --- | --- | --- |',
+  ...reasonable.map((r) => `| ${r.name} | ${r.pve.timeouts} of ${r.pve.n} | ${r.h2h.timeouts} of ${r.h2h.n} |`),
+  '',
+  `The reasonable-board report (${reasonableFights} fights) took ${reasonableSeconds.toFixed(1)} s.`,
   '',
   '## Knight vs Skeleton Warrior',
   '',
@@ -304,15 +458,11 @@ const md = [
   '',
   '| target | wanted | now |',
   '| --- | --- | --- |',
-  `| fight length | ${tg.fightSeconds[0]}-${tg.fightSeconds[1]} s | ${sec(base.avg)} average (1-star duel) |`,
-  `| unit win rate in mixed boards | ${pct(tg.unitWinRate[0])}-${pct(tg.unitWinRate[1])} | not measured yet (needs the full roster) |`,
-  `| reasonable board clears round 1 | ~${pct(tg.round1ClearRate)} | ${pct(firstTryRate(0))} first try (simple bot; A3 adds proper "reasonable boards") |`,
-  `| reasonable board clears round 5 | ~${pct(tg.round5ClearRate)} | ${pct(firstTryRate(runStats.nRounds - 1))} first try (simple bot) |`,
-  '',
-  '## Not measured yet',
-  '',
-  '- Win rate per unit in mixed boards, per 2-unit pair, and per round: these need a set of "reasonable player boards" (PLAN.md, item A3).',
-  `- Specials not built in the sim yet: ${Object.values(allUnits).filter((u) => !u.special.built && u.special.kind !== 'none').map((u) => `${u.name} (${u.special.name})`).join(', ') || 'none'}.`,
+  `| fight length | ${tg.fightSeconds[0]}-${tg.fightSeconds[1]} s | ${sec(pveAvg)} vs skeletons, ${sec(h2hAvg)} head-to-head (reasonable boards) |`,
+  `| unit win rate in mixed boards | ${pct(tg.unitWinRate[0])}-${pct(tg.unitWinRate[1])} | ${pct1(unitRows[unitRows.length - 1].h2h)} (${unitRows[unitRows.length - 1].name}) to ${pct1(unitRows[0].h2h)} (${unitRows[0].name}) head-to-head |`,
+  `| no pair above | ${pct(tg.pairWinRateMax)} | best ${(() => { const p = pairRows.filter((q) => q.n >= PAIR_MIN).sort((x, y) => y.rate - x.rate)[0]; return `${p.name} ${pct(p.rate)}`; })()} |`,
+  `| reasonable board clears round 1 | ~${pct(tg.round1ClearRate)} | ${pct(r1.clear)} (simple bot: ${pct(firstTryRate(0))} first try) |`,
+  `| reasonable board clears round 5 | ~${pct(tg.round5ClearRate)} (+-${pct(tg.round5Tolerance)}) | ${pct(r5.clear)} (simple bot: ${pct(firstTryRate(runStats.nRounds - 1))} first try) |`,
   '',
   '## Sim health',
   '',
