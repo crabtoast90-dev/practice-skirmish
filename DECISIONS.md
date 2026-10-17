@@ -8,3 +8,4 @@ One dated line per decision the user makes.
 - 2026-10-17: Starting balance targets: fights 10-25 s; no unit above ~60% or below ~40% in mixed boards; a reasonable board clears round 1 almost always and round 5 about a third of the time.
 - 2026-10-17: Look is a lamp-lit tabletop diorama (warm side light, wooden gridded board, soft shadows, slight tilt-shift); lighting first; the look is one item owned by one session.
 - 2026-10-17: Stack and workflow copied from practice-glade (three.js pinned, Vite, Pages on push to main, `npm run check`).
+- 2026-10-17: LOG.md drops the directing / reviewing / playing minutes; it tracks time spent instead: Claude's working time plus the user's replies that come within 20 minutes of Claude finishing.

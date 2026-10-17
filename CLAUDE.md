@@ -26,4 +26,4 @@ Work on your own branch. When the check passes and you've opened the screenshots
 - `FRICTION.md`: when the user says "friction: ...", add a timestamped line.
 
 ## End of every session
-Ask the user for their minutes (directing / reviewing / playing) and fresh fun and look scores 1-5. Never carry scores over from an earlier row. Then write the `LOG.md` row yourself (the user never edits it).
+Ask the user for fresh fun and look scores 1-5. Never carry scores over from an earlier row. Then write the `LOG.md` row yourself (the user never edits it). "Time spent" is worked out by you, not asked: add up the time Claude spent working on each prompt, plus each gap where the user replied within 20 minutes of Claude finishing (longer gaps don't count). Use the session's timestamps.
