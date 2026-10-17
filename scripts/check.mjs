@@ -8,6 +8,8 @@ import { join } from 'node:path';
 import { simulate } from '../src/sim/battle.js';
 import { TUNING } from '../src/tuning.js';
 import { createShop } from '../src/game/shop.js';
+import { createRun } from '../src/game/run.js';
+import { botShop } from '../src/game/bot.js';
 
 const RUNS = 'check-output';
 const KEEP = 5;
@@ -43,15 +45,16 @@ const browser = await chromium.launch({
 });
 
 // Pick the first seed whose round-1 shop offers two Knights and a third 2-gold
-// unit, and whose next roll (after "Again") offers another unit we can afford.
+// unit, and whose round-2 roll offers another unit we can afford.
 function shopSeed() {
   for (let seed = 1; seed < 5000; seed++) {
     const shop = createShop(TUNING, seed);
     const o = shop.state.offers;
     const third = o.findIndex((u) => u !== 'knight');
     if (o.filter((u) => u === 'knight').length !== 2 || third < 0 || TUNING.units[o[third]].cost !== 2) continue;
-    shop.refresh();
-    const left = shop.state.gold - 6;
+    shop.state.gold -= 6;
+    shop.startRound(2);
+    const left = shop.state.gold;
     if (shop.state.offers.some((u) => u !== 'knight' && u !== o[third] && TUNING.units[u].cost <= left)) return seed;
   }
   throw new Error('no seed gives a shop with two Knights');
@@ -59,7 +62,7 @@ function shopSeed() {
 const SEED = shopSeed();
 const summariesGold = {}; // gold left after the first shop, per run
 
-async function run(name, contextOptions, script) {
+async function run(name, contextOptions, script, seed = SEED) {
   const context = await browser.newContext(contextOptions);
   const page = await context.newPage();
   page.on('console', (msg) => {
@@ -81,7 +84,7 @@ async function run(name, contextOptions, script) {
   });
   const url = new URL(base);
   url.searchParams.set('test', '');
-  url.searchParams.set('seed', SEED);
+  url.searchParams.set('seed', seed);
   await page.goto(url.href.replace('test=', 'test'));
   await page.waitForFunction(() => window.__game);
   await page.waitForFunction(() => window.__game.state().screen === 'setup' && window.__game.state().propsLoaded, null, { timeout: 60000 });
@@ -131,7 +134,7 @@ async function composeLookSheet() {
 
 // Browser vs Node: the fight the browser played must match the same fight simulated here.
 function matchNode(name, end) {
-  const node = simulate(TUNING, end.boards.player, end.boards.enemy, end.seed, { record: false });
+  const node = simulate(TUNING, end.boards.player, end.boards.enemy, end.fightSeed, { record: false });
   if (!end.result || end.result.winner !== node.winner || end.result.duration !== node.duration) {
     failures.push(`[${name}] browser fight (${end.result?.winner} in ${end.result?.duration}s) differs from Node sim (${node.winner} in ${node.duration}s)`);
   } else {
@@ -182,7 +185,9 @@ async function shopRun(page, name, click, tapAt) {
   await shot(page, name, '1-holding');
   await tapCell(0, 2);
   s = await state(page);
-  expect(s.board.some((u) => u.unit === 'knight' && u.row === 0 && u.col === 2) && !s.held && s.minis === 2, `Knight not placed at front centre (${JSON.stringify(s.board)})`);
+  expect(s.round === 1 && s.lives === TUNING.economy.lives && s.enemy.length === TUNING.rounds[0].board.length, `run should start at round 1 with ${TUNING.economy.lives} lives against round 1's board (round ${s.round}, ${s.lives} lives)`);
+  expect((await page.textContent('#round')).includes('Round 1') && (await page.$$('#lives .pip:not(.lost)')).length === TUNING.economy.lives, 'round counter or lives pips missing');
+  expect(s.board.some((u) => u.unit === 'knight' && u.row === 0 && u.col === 2) && !s.held && s.minis === 1 + s.enemy.length, `Knight not placed at front centre (${JSON.stringify(s.board)})`);
 
   await click(`.offer[data-slot="${other}"]`);
   await advance(page, 50);
@@ -196,7 +201,7 @@ async function shopRun(page, name, click, tapAt) {
   s = await state(page);
   const k = s.board.filter((u) => u.unit === 'knight');
   expect(k.length === 1 && k[0].star === 2 && !s.held && s.lastMerge?.unit === 'knight', `second Knight did not merge into a 2-star (${JSON.stringify(s.board)}, hand ${JSON.stringify(s.held)})`);
-  expect(s.minis === 3, `expected 3 minis after the merge, got ${s.minis}`);
+  expect(s.minis === 2 + s.enemy.length, `expected ${2 + s.enemy.length} minis after the merge, got ${s.minis}`);
   await shot(page, name, '2-merged');
 
   // Pick the back unit up and move it to the middle row.
@@ -211,30 +216,30 @@ async function shopRun(page, name, click, tapAt) {
   summaries.push(`## ${name} shop\n${await page.evaluate(() => window.__game.stateText())}`);
 }
 
-// After "Again": a fresh roll; buy one more unit and place it, so three units fight.
+// Round 2's shop: buy one more unit and place it, so three units stand on your half.
 async function thirdUnit(page, name, click, tapAt) {
   let s = await state(page);
   const income = TUNING.economy.incomePerRound[1];
-  if (s.round !== 2 || s.gold !== summariesGold[name] + income) failures.push(`[${name}] after Again: round ${s.round}, gold ${s.gold} (expected round 2 and ${summariesGold[name]} + ${income} income)`);
-  else summaries.push(`[${name}] after Again: round 2, ${summariesGold[name]} gold left + ${income} income = ${s.gold} gold`);
+  if (s.round !== 2 || s.gold !== summariesGold[name] + income) failures.push(`[${name}] after Next round: round ${s.round}, gold ${s.gold} (expected round 2 and ${summariesGold[name]} + ${income} income)`);
+  else summaries.push(`[${name}] after Next round: round 2, ${summariesGold[name]} gold left + ${income} income = ${s.gold} gold`);
   const slot = s.offers.findIndex((u) => u && u !== 'knight' && !s.board.some((b) => b.unit === u) && TUNING.units[u].cost <= s.gold);
-  if (slot < 0) { failures.push(`[${name}] no affordable new unit after Again (${s.offers}, ${s.gold} gold)`); return; }
+  if (slot < 0) { failures.push(`[${name}] no affordable new unit in round 2 (${s.offers}, ${s.gold} gold)`); return; }
   await click(`.offer[data-slot="${slot}"]`);
   await advance(page, 50);
   const p = await page.evaluate(() => window.__game.cellToScreen(0, 0));
   await tapAt(p.x, p.y);
   await advance(page, 300);
   s = await state(page);
-  if (s.board.length !== 3 || s.minis !== 4) failures.push(`[${name}] expected three units placed (4 minis), got ${s.board.length} units, ${s.minis} minis`);
+  if (s.board.length !== 3 || s.minis !== 3 + s.enemy.length) failures.push(`[${name}] expected three units placed (${3 + s.enemy.length} minis), got ${s.board.length} units, ${s.minis} minis`);
   await shot(page, name, '5-three-units');
-  summaries.push(`## ${name} after Again\n${await page.evaluate(() => window.__game.stateText())}`);
+  summaries.push(`## ${name} round 2 shop\n${await page.evaluate(() => window.__game.stateText())}`);
 }
 
 // One full fight: board, mid-fight, result; then "Again" goes back to the board.
 async function fightRun(page, name, click) {
   await advance(page, 300);
   const setup = await state(page);
-  const expectMinis = setup.board.length + 1;
+  const expectMinis = setup.board.length + TUNING.rounds[1].board.length;
   // Framing: the whole board frame (and far minis' heads) must be on screen.
   const f = setup.frame;
   if (f.x0 < -1 || f.x1 > 1 || f.y0 < -1 || f.y1 > 1) failures.push(`[${name}] board clips the screen edge (x ${f.x0.toFixed(2)}..${f.x1.toFixed(2)}, y ${f.y0.toFixed(2)}..${f.y1.toFixed(2)})`);
@@ -254,11 +259,13 @@ async function fightRun(page, name, click) {
   if (end.screen !== 'result') failures.push(`[${name}] battle never ended (screen ${end.screen})`);
   if (!(await page.isVisible('#banner'))) failures.push(`[${name}] result banner not visible`);
   matchNode(name, end);
+  if (end.result?.winner !== 'player' || (await page.textContent('#fight')) !== 'Next round') failures.push(`[${name}] round 1 should be won with "Next round" (${end.result?.winner}, button "${await page.textContent('#fight')}")`);
   await click('#fight');
   await advance(page, 300);
-  const again = await state(page);
-  if (again.screen !== 'setup' || again.minis !== expectMinis || again.seed !== end.seed + 1) failures.push(`[${name}] Again did not go back to your board (${again.screen}, ${again.minis} minis, seed ${again.seed})`);
-  if (!(await page.isVisible('#shop'))) failures.push(`[${name}] shop not back after Again`);
+  const next = await state(page);
+  const gold = end.gold + TUNING.economy.incomePerRound[1];
+  if (next.screen !== 'setup' || next.round !== 2 || next.gold !== gold || next.minis !== expectMinis) failures.push(`[${name}] Next round did not open round 2's shop (${next.screen}, round ${next.round}, ${next.gold} gold vs ${gold}, ${next.minis} minis vs ${expectMinis})`);
+  if (!(await page.isVisible('#shop'))) failures.push(`[${name}] shop not back for round 2`);
 }
 
 // 3v3 where the Knights start queued in one column: they should fan out across
@@ -308,6 +315,80 @@ async function lineupRun(page, name) {
   summaries.push(`## ${name} line-up\n${await page.evaluate(() => window.__game.stateText())}`);
 }
 
+// Whole runs: the bot plays a seeded run here in Node, then the browser replays
+// the same taps; every round's result must match. Screenshots each round's
+// result and the end screen, then "Play again" must start a fresh run.
+function botRun(seed, style) {
+  const run = createRun(TUNING, seed);
+  const phases = [];
+  while (run.state.phase === 'shop') {
+    const actions = botShop(TUNING, run.shop, { style });
+    run.fight({ record: false });
+    phases.push({ actions, after: { ...run.state.last, lives: run.state.lives, phase: run.state.phase } });
+    run.next();
+  }
+  return { phases, end: run.state.phase };
+}
+function findSeed(style, end, want = () => true) {
+  for (let seed = 1; seed < 2000; seed++) {
+    const r = botRun(seed, style);
+    if (r.end === end && want(r)) return seed;
+  }
+  throw new Error(`no seed where the ${style} bot reaches ${end}`);
+}
+// Victory: prefer a run that loses a round on the way, to show the replay.
+let VICTORY_SEED;
+try { VICTORY_SEED = findSeed('greedy', 'victory', (r) => r.phases.some((p) => !p.after.won)); } catch { VICTORY_SEED = findSeed('greedy', 'victory'); }
+const DEFEAT_SEED = findSeed('stingy', 'defeat');
+
+async function wholeRun(page, name, click, tapAt, seed, style) {
+  const plan = botRun(seed, style);
+  const tag = `${name} ${plan.end}`;
+  const expect = (cond, msg) => { if (!cond) failures.push(`[${tag}] ${msg}`); };
+  let fights = 0;
+  for (const phase of plan.phases) {
+    let s = await state(page);
+    expect(s.screen === 'setup' && s.round === phase.after.round, `expected round ${phase.after.round}'s shop, got ${s.screen} round ${s.round}`);
+    for (const a of phase.actions) {
+      if (a.type === 'buy') await click(`.offer[data-slot="${a.slot}"]`);
+      if (a.type === 'reroll') await click('#reroll');
+      if (a.type === 'tap') {
+        const p = await page.evaluate(([r, c]) => window.__game.cellToScreen(r, c), [a.row, a.col]);
+        await tapAt(p.x, p.y);
+      }
+      await advance(page, 20);
+    }
+    await click('#fight');
+    await advance(page, 60000); // the whole fight plus the pause after it, in one go
+    fights += 1;
+    s = await state(page);
+    const want = phase.after;
+    const n = want.round;
+    expect(s.result && s.result.winner === want.winner && s.result.duration === want.duration && s.lives === want.lives,
+      `round ${n}: browser ${s.result?.winner} in ${s.result?.duration}s with ${s.lives} lives, Node ${want.winner} in ${want.duration}s with ${want.lives}`);
+    matchNode(`${tag} r${n}`, s);
+    await shot(page, `${name}-${plan.end}`, `${fights}-round${n}-${want.won ? 'won' : 'lost'}`);
+    if (want.phase === 'result') {
+      expect(await page.isVisible('#banner'), `round ${n} result banner not visible`);
+      await click('#fight');
+      await advance(page, 300);
+    }
+  }
+  const s = await state(page);
+  expect(s.screen === plan.end, `run should end on ${plan.end}, screen is ${s.screen}`);
+  expect((await page.textContent('#banner')).startsWith(plan.end === 'victory' ? 'Victory' : 'Defeat'), 'end banner text wrong');
+  expect((await page.textContent('#fight')) === 'Play again', 'no "Play again" button');
+  summaries.push(`## ${tag} (seed ${seed}, ${style} bot)\n${await page.evaluate(() => window.__game.stateText())}`);
+  await page.waitForTimeout(50);
+  await shot(page, `${name}-${plan.end}`, `${fights + 1}-end-screen`);
+  await click('#fight');
+  await advance(page, 300);
+  const again = await state(page);
+  expect(again.screen === 'setup' && again.round === 1 && again.lives === TUNING.economy.lives && again.board.length === 0 && again.seed === seed + 1 && !(await page.isVisible('#banner')),
+    `Play again did not start a fresh run (${again.screen}, round ${again.round}, ${again.lives} lives, ${again.board.length} units, seed ${again.seed})`);
+  summaries.push(`[${tag}] ${fights} fights matched Node, rounds ${plan.phases.map((p) => `${p.after.round}${p.after.won ? 'W' : 'L'}`).join(' ')}; Play again starts round 1 with ${again.lives} lives`);
+}
+
 async function fullRun(page, name, click, tapAt) {
   await shopRun(page, name, click, tapAt);
   await fightRun(page, name, click);
@@ -316,9 +397,16 @@ async function fullRun(page, name, click, tapAt) {
   await lineupRun(page, name);
 }
 
-summaries.push(`shop seed ${SEED} (first seed whose round-1 shop offers two Knights)`);
-await run('laptop', { viewport: { width: 1280, height: 720 } }, (page, name) => fullRun(page, name, (sel) => page.click(sel), (x, y) => page.mouse.click(x, y)));
-await run('phone', { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }, (page, name) => fullRun(page, name, (sel) => page.tap(sel), (x, y) => page.touchscreen.tap(x, y)));
+summaries.push(`shop seed ${SEED} (first seed whose round-1 shop offers two Knights); victory run seed ${VICTORY_SEED}; defeat run seed ${DEFEAT_SEED}`);
+const DEVICES = {
+  laptop: [{ viewport: { width: 1280, height: 720 } }, (page) => [(sel) => page.click(sel), (x, y) => page.mouse.click(x, y)]],
+  phone: [{ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }, (page) => [(sel) => page.tap(sel), (x, y) => page.touchscreen.tap(x, y)]],
+};
+for (const [name, [opts, input]] of Object.entries(DEVICES)) {
+  await run(name, opts, (page) => fullRun(page, name, ...input(page)));
+  await run(name, opts, (page) => wholeRun(page, name, ...input(page), VICTORY_SEED, 'greedy'), VICTORY_SEED);
+  await run(name, opts, (page) => wholeRun(page, name, ...input(page), DEFEAT_SEED, 'stingy'), DEFEAT_SEED);
+}
 
 if (lookFiles.game && lookFiles.phone) await composeLookSheet();
 else failures.push('look sheet: missing shots');

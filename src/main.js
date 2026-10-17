@@ -5,9 +5,9 @@ import { createPlayback } from './view/playback.js';
 import { createPost } from './view/post.js';
 import { createClock, STEP } from './clock.js';
 import { createDebugOverlay } from './debug.js';
-import { simulate, globalRow } from './sim/battle.js';
+import { globalRow } from './sim/battle.js';
 import { TUNING } from './tuning.js';
-import { createShop } from './game/shop.js';
+import { createRun } from './game/run.js';
 import { createShopUI } from './view/shopUI.js';
 
 const params = new URLSearchParams(location.search);
@@ -15,12 +15,14 @@ const TEST = params.has('test');
 const phone = matchMedia('(pointer: coarse)').matches || Math.min(innerWidth, innerHeight) < 600;
 const quality = { pixelRatio: 2, shadowMap: phone ? 1024 : 2048 };
 
-// You buy and place your board in the shop; the enemy is one Skeleton Warrior
-// until the round boards arrive (PLAN.md B2). Local rows: 0 = front.
-let ENEMY_BOARD = [{ unit: 'skeletonWarrior', row: 0, col: 2 }];
+// One sitting: five rounds against tuning.rounds' boards, three lives (src/game/run.js).
+// ?seed=N picks the run; "Play again" starts the next seed. Local rows: 0 = front.
 let seed = Number(params.get('seed') ?? 1);
-const shop = createShop(TUNING, seed);
-let playerBoard = [];
+let run = createRun(TUNING, seed);
+let shop = run.shop;
+let testEnemy = null; // set by the setBoards test hook
+const enemyBoard = () => testEnemy ?? run.enemyBoard();
+let fought = { player: [], enemy: [], seed: null }; // the boards and seed of the last fight
 
 const canvas = document.getElementById('game');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -85,7 +87,7 @@ function frameBounds() {
 // of backing far away, so minis stay big.
 function frameGame(w, h, inset) {
   const { elevation, yaw } = VIEWS.game;
-  const top = phone ? 78 : 56;
+  const top = phone ? 104 : 80; // title and the round / lives bar
   const bottom = Math.max(inset + 10, 40);
   const aspect = w / Math.max(1, h - top - bottom);
   camera.fov = THREE.MathUtils.clamp(THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(40) / 2) / aspect)), 30, 40);
@@ -178,57 +180,91 @@ const shopUI = createShopUI({
 
 const fightBtn = document.getElementById('fight');
 const banner = document.getElementById('banner');
-let screen = 'loading'; // loading | setup | battle | result | lineup (test hook)
+const roundEl = document.getElementById('round');
+const livesEl = document.getElementById('lives');
+let screen = 'loading'; // loading | setup | battle | result | victory | defeat | lineup (test hook)
 let loaded = false;
 let result = null;
 
 function placeBoards() {
   playback.stop();
   for (const e of shop.state.board) units.spawn(e.unit, 'player', e.col, globalRow('player', e.row), { star: e.star });
-  for (const e of ENEMY_BOARD) units.spawn(e.unit, 'enemy', e.col, globalRow('enemy', e.row), { star: e.star });
+  for (const e of enemyBoard()) units.spawn(e.unit, 'enemy', e.col, globalRow('enemy', e.row), { star: e.star });
 }
 
 // Redraw the shop and the minis after any buy, reroll or tap.
 function refreshSetup() {
   placeBoards();
+  drawRunBar();
   shopUI.render(shop, true);
   const s = shop.state;
   fightBtn.disabled = !s.board.length && !s.held;
   if (TEST) render();
 }
 
+// Round counter and lives pips at the top.
+function drawRunBar() {
+  const r = run.state;
+  roundEl.textContent = `Round ${r.round} of ${run.rounds}${r.round === run.rounds ? ' · Boss' : ''}`;
+  livesEl.innerHTML = Array.from({ length: TUNING.economy.lives }, (_, i) => `<span class="pip${i < r.lives ? '' : ' lost'}"></span>`).join('');
+  livesEl.setAttribute('aria-label', `${r.lives} of ${TUNING.economy.lives} lives left`);
+}
+
 function toSetup() {
   screen = 'setup';
   result = null;
   banner.hidden = true;
+  banner.className = '';
   fightBtn.textContent = 'Fight';
   refreshSetup();
 }
 
 function fight() {
-  playerBoard = shop.commit();
+  result = run.fight({ enemy: testEnemy ?? undefined });
+  if (!result) return;
+  fought = { ...result.boards, seed: result.seed };
   shopUI.render(shop, false);
-  result = simulate(TUNING, playerBoard, ENEMY_BOARD, seed);
   playback.start(result);
   screen = 'battle';
   fightBtn.disabled = true;
   fightBtn.textContent = 'Fighting…';
 }
 
+// After the fight: the round's result, or the Victory / Defeat screen.
 function showResult() {
-  screen = 'result';
-  const name = (u) => (TUNING.units[u.unit] ?? TUNING.enemies[u.unit]).name;
-  const title = { player: 'Victory', enemy: 'Defeat', draw: 'Draw' }[result.winner];
-  const who = result.survivors.length ? `${result.survivors.map((s) => name(s)).join(', ')} won in ${result.duration.toFixed(1)} s` : '';
-  banner.innerHTML = `${title}<small>${who}</small>`;
+  const r = run.state;
+  screen = r.phase; // result | victory | defeat
+  drawRunBar();
+  const last = r.last;
+  const left = `${r.lives} ${r.lives === 1 ? 'life' : 'lives'} left`;
+  const n = last.round;
+  if (screen === 'victory') {
+    banner.innerHTML = `Victory<small>All ${run.rounds} rounds cleared · ${left}</small>`;
+  } else if (screen === 'defeat') {
+    banner.innerHTML = `Defeat<small>Out of lives on round ${n}</small>`;
+  } else if (last.won) {
+    banner.innerHTML = `Round ${n} won<small>Cleared in ${last.duration.toFixed(1)} s · next: round ${n + 1}</small>`;
+  } else {
+    banner.innerHTML = `Round ${n} lost<small>${last.winner === 'draw' ? 'Time ran out · ' : ''}−1 life, ${left}. Replay round ${n}</small>`;
+  }
+  banner.className = screen === 'result' ? (last.won ? 'won' : 'lost') : `end ${screen}`;
   banner.hidden = false;
-  fightBtn.textContent = 'Again';
+  fightBtn.textContent = screen === 'result' ? (last.won ? 'Next round' : 'Try again') : 'Play again';
   fightBtn.disabled = false;
+}
+
+function playAgain() {
+  seed += 1;
+  run = createRun(TUNING, seed);
+  shop = run.shop;
+  testEnemy = null;
+  toSetup();
 }
 
 fightBtn.addEventListener('click', () => {
   if (screen === 'setup') fight();
-  else if (screen === 'result') { seed += 1; shop.refresh(); toSetup(); }
+  else if (screen === 'result') { run.next(); toSetup(); }
+  else if (screen === 'victory' || screen === 'defeat') playAgain();
 });
 
 units.ready.then(() => { loaded = true; toSetup(); resize(); });
@@ -254,20 +290,26 @@ function state() {
     loaded,
     propsLoaded: !!scene.userData.propsLoaded,
     seed,
+    fightSeed: fought.seed,
+    round: run.state.round,
+    roundName: run.roundName(),
+    lives: run.state.lives,
+    phase: run.state.phase,
+    history: run.state.history.map((h) => ({ ...h })),
     time: Math.round(clock.time * 100) / 100,
     minis: units.count,
-    round: shop.state.round,
     models: units.list(),
     gold: shop.state.gold,
     offers: [...shop.state.offers],
     held: shop.state.held && { ...shop.state.held },
     board: shop.state.board.map((u) => ({ ...u })),
+    enemy: enemyBoard().map((u) => ({ ...u })),
     lastMerge: shop.state.lastMerge,
     battle: playback.state(),
     view,
     frame: frameBounds(),
-    result: result && screen === 'result' ? { winner: result.winner, duration: result.duration, survivors: result.survivors } : null,
-    boards: { player: playerBoard, enemy: ENEMY_BOARD }, // the boards of the last fight
+    result: result && screen !== 'battle' && screen !== 'setup' ? { winner: result.winner, duration: result.duration, survivors: result.survivors } : null,
+    boards: { player: fought.player, enemy: fought.enemy }, // the boards of the last fight
     sim: result ? { winner: result.winner, duration: result.duration } : null,
   };
 }
@@ -279,10 +321,11 @@ function stateText() {
   const b = s.battle;
   return [
     `screen: ${s.screen} (models ${s.loaded ? 'loaded' : 'loading'}, mug ${s.propsLoaded ? 'loaded' : 'loading'})`,
-    `time: ${s.time}s, seed ${s.seed}`,
-    `round ${s.round}; gold: ${s.gold}; offers: ${s.offers.map((u) => (u ? `${u} (${TUNING.units[u].cost}g)` : 'sold')).join(', ')}; reroll ${TUNING.economy.rerollCost}g`,
+    `time: ${s.time}s, run seed ${s.seed}, last fight seed ${s.fightSeed ?? 'none'}`,
+    `run: ${s.roundName} (round ${s.round} of ${run.rounds}), ${s.lives} lives, phase ${s.phase}; fights so far: ${s.history.map((h) => `r${h.round} ${h.won ? 'won' : 'lost'}`).join(', ') || 'none'}`,
+    `gold: ${s.gold}; offers: ${s.offers.map((u) => (u ? `${u} (${TUNING.units[u].cost}g)` : 'sold')).join(', ')}; reroll ${TUNING.economy.rerollCost}g`,
     `hand: ${s.held ? `${s.held.unit} ${s.held.star}-star` : 'empty'}${s.lastMerge ? `; just merged a 2-star ${s.lastMerge.unit}` : ''}`,
-    `board: player ${s.board.map((e) => `${e.unit}${e.star === 2 ? '★★' : ''}@r${e.row}c${e.col}`).join(', ') || 'empty'} vs enemy ${ENEMY_BOARD.map((e) => `${e.unit}@r${e.row}c${e.col}`).join(', ')}; ${s.minis} minis on the board`,
+    `board: player ${s.board.map((e) => `${e.unit}${e.star === 2 ? '★★' : ''}@r${e.row}c${e.col}`).join(', ') || 'empty'} vs enemy ${enemyBoard().map((e) => `${e.unit}@r${e.row}c${e.col}`).join(', ')}; ${s.minis} minis on the board`,
     `models: ${s.models.map((m) => `${m.unit}=${m.model} (${m.animation})`).join(', ') || 'none'}`,
     b ? `battle: t=${b.t}s; ${b.units.map((u) => `${u.unit} ${u.hp}hp ${u.animation} @${u.x},${u.y}`).join('; ')}` : 'battle: not running',
     s.sim ? `sim decided: ${s.sim.winner} in ${s.sim.duration}s` : 'sim decided: nothing yet',
@@ -301,7 +344,7 @@ window.__game = {
   // Test hook: put these boards out (local rows, as in tuning.rounds) and go back to setup.
   setBoards(player, enemy) {
     shop.setBoard(player);
-    ENEMY_BOARD = enemy;
+    testEnemy = enemy;
     toSetup();
     return state();
   },

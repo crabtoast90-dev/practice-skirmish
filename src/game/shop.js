@@ -133,13 +133,12 @@ export function createShop(tuning, seed, { round = 1 } = {}) {
       s.lastMerge = null;
     },
 
-    // Next round: income for it (economy.incomePerRound) and a fresh roll at its shop odds.
-    // The board and leftover gold carry over. Past the last round, keep paying the last
-    // round's income (until the five-round run arrives, PLAN.md B2).
-    refresh() {
-      s.round += 1;
-      s.gold += eco.incomePerRound[Math.min(s.round, eco.incomePerRound.length) - 1];
-      s.offers = rollOffers(tuning, s.round, rng);
+    // A new shop phase: this round's income on top of saved gold, and a fresh
+    // roll. The board carries over.
+    startRound(round) {
+      s.round = round;
+      s.gold += eco.incomePerRound[round - 1];
+      s.offers = rollOffers(tuning, round, rng);
       s.lastMerge = null;
     },
   };

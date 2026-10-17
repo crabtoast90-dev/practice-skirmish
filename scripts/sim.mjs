@@ -6,6 +6,8 @@ import { writeFileSync } from 'node:fs';
 import { TUNING } from '../src/tuning.js';
 import { simulate, makeRng, COLS, ROWS_PER_SIDE } from '../src/sim/battle.js';
 import { rollOffers } from '../src/game/shop.js';
+import { createRun } from '../src/game/run.js';
+import { botShop } from '../src/game/bot.js';
 
 const SEEDS_PER_PLACEMENT = Number(process.argv.find((a) => a.startsWith('--seeds='))?.slice(8) ?? 10);
 const OUT = 'BALANCE.md';
@@ -138,6 +140,40 @@ const total = matchups.reduce((s, m) => s + m.n, 0) + spacing.n;
 const tg = TUNING.targets;
 
 // Flags in plain words.
+// Whole runs: the simple bot (src/game/bot.js) plays complete seeded sittings.
+// It buys merges first, then anything it can afford, rerolls while it has spare
+// gold, tanks in front, ranged at the back. Not a great player, not a bad one.
+const RUNS = 1000;
+const runStats = (() => {
+  const nRounds = TUNING.rounds.length;
+  const tries = Array(nRounds).fill(0);
+  const firstTry = Array(nRounds).fill(0);
+  const reached = Array(nRounds).fill(0);
+  let victories = 0;
+  let livesLeft = 0;
+  let fights = 0;
+  let units = 0;
+  for (let seed = 1; seed <= RUNS; seed++) {
+    const run = createRun(TUNING, seed);
+    const seen = new Set();
+    while (run.state.phase === 'shop') {
+      const r = run.state.round;
+      if (!seen.has(r)) { seen.add(r); reached[r - 1] += 1; }
+      botShop(TUNING, run.shop);
+      const first = run.state.history.every((h) => h.round !== r);
+      run.fight({ record: false });
+      tries[r - 1] += 1;
+      if (first && run.state.last.won) firstTry[r - 1] += 1;
+      run.next();
+    }
+    fights += run.state.history.length;
+    units += run.shop.state.board.length;
+    if (run.state.phase === 'victory') { victories += 1; livesLeft += run.state.lives; }
+  }
+  return { nRounds, tries, firstTry, reached, victory: victories / RUNS, livesLeft: livesLeft / (victories || 1), fights: fights / RUNS, units: units / RUNS };
+})();
+const firstTryRate = (i) => runStats.firstTry[i] / (runStats.reached[i] || 1);
+
 const flags = [];
 for (const m of matchups) {
   if (m.avg < tg.fightSeconds[0]) flags.push(`${m.playerName} vs ${m.enemyName}: fights are too short (average ${sec(m.avg)}, target ${tg.fightSeconds[0]}-${tg.fightSeconds[1]} s).`);
@@ -174,6 +210,9 @@ for (const r of specialRows) {
 }
 if (spacing.timeouts) flags.push(`${spacing.timeouts} of ${spacing.n} random 5v5 fights timed out at ${TUNING.combat.timeoutSeconds} s (random boards, so a hint only).`);
 if (!det.ok) flags.push(`DETERMINISM BROKEN: seed ${det.seed} gave two different results. Nothing else in this file can be trusted until that's fixed.`);
+
+if (firstTryRate(runStats.nRounds - 1) > tg.round5ClearRate + 0.2) flags.push(`The simple bot beats the round 5 boss first try ${pct(firstTryRate(runStats.nRounds - 1))} of the time (target ~${pct(tg.round5ClearRate)}) and wins ${pct(runStats.victory)} of whole runs: the skeleton boards are too easy for what the gold buys (it fields ${runStats.units.toFixed(1)} units by the end; nothing limits board size).`);
+if (firstTryRate(0) < tg.round1ClearRate - 0.1) flags.push(`The simple bot only clears round 1 first try ${pct(firstTryRate(0))} of the time (target ~${pct(tg.round1ClearRate)}).`);
 
 const headline = (() => {
   const b = matchups[0];
@@ -243,6 +282,16 @@ const md = [
   '| --- | --- | --- | --- | --- |',
   ...specialRows.map((r) => `| ${r.u.name} | ${r.sp.name} | ${r.sp.kind === 'none' ? '-' : `${r.sp.cooldown} s${r.sp.firstAt ? ` (first at ${r.sp.firstAt * r.sp.cooldown} s)` : ''}`} | ${r.sp.kind === 'none' ? '-' : r.perFight.toFixed(2)} | ${r.effect} |`),
   '',
+  '## Whole runs',
+  '',
+  `${RUNS} complete sittings played by the simple bot (buys merges first, then anything it can afford, rerolls spare gold, tanks in front, ranged behind). Lose a round = lose a life and replay it; clear all ${runStats.nRounds} = Victory; ${TUNING.economy.lives} lives.`,
+  '',
+  `- Victory in **${pct(runStats.victory)}** of runs (with ${runStats.livesLeft.toFixed(1)} lives left on average when it wins); ${runStats.fights.toFixed(1)} fights per run; ${runStats.units.toFixed(1)} units on the board at the end.`,
+  '',
+  '| round | runs that got there | cleared first try | fights played there |',
+  '| --- | --- | --- | --- |',
+  ...TUNING.rounds.map((r, i) => `| ${r.name} | ${pct(runStats.reached[i] / RUNS)} | ${pct(firstTryRate(i))} | ${runStats.tries[i]} |`),
+  '',
   '## Shop',
   '',
   `${SHOP_ROLLS} rolls of ${eco.offersPerRound} offers per round from \`src/game/shop.js\`. "Shows up" = at least one copy in a fresh roll; "a pair" = two of the same unit in one roll (buy both for an instant 2-star). Reroll costs ${eco.rerollCost} gold.`,
@@ -257,8 +306,8 @@ const md = [
   '| --- | --- | --- |',
   `| fight length | ${tg.fightSeconds[0]}-${tg.fightSeconds[1]} s | ${sec(base.avg)} average (1-star duel) |`,
   `| unit win rate in mixed boards | ${pct(tg.unitWinRate[0])}-${pct(tg.unitWinRate[1])} | not measured yet (needs the full roster) |`,
-  `| reasonable board clears round 1 | ~${pct(tg.round1ClearRate)} | not measured yet (needs player boards and rounds) |`,
-  `| reasonable board clears round 5 | ~${pct(tg.round5ClearRate)} | not measured yet |`,
+  `| reasonable board clears round 1 | ~${pct(tg.round1ClearRate)} | ${pct(firstTryRate(0))} first try (simple bot; A3 adds proper "reasonable boards") |`,
+  `| reasonable board clears round 5 | ~${pct(tg.round5ClearRate)} | ${pct(firstTryRate(runStats.nRounds - 1))} first try (simple bot) |`,
   '',
   '## Not measured yet',
   '',
