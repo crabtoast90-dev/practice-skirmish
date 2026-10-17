@@ -56,13 +56,16 @@ function makeFighter(tuning, side, entry, id, rng) {
     range: base.range,
     moveSpeed: base.moveSpeed,
     special: sp,
-    specialTimer: sp.built ? (sp.firstAt ?? 1) * sp.cooldown : Infinity,
+    specialTimer: (sp.firstAt ?? 1) * sp.cooldown,
     attackTimer: rng() / base.attackSpeed, // stagger first swings so mirror fights aren't locked
     shieldUntil: -1, // Shield Wall
     empowered: false, // Heavy Blow: next attack hits harder
     target: null,
     alive: true,
     damageDealt: 0,
+    casts: 0, // times the special went off
+    specialDamage: 0, // damage dealt by the special (for Heavy Blow-style hits, the whole empowered hit)
+    blocked: 0, // damage Shield Wall stopped
   };
 }
 
@@ -128,6 +131,9 @@ function walkCosts(f, blocked) {
   return { cost, first, start };
 }
 
+// How far back toward its own edge a fighter stands (0 = its side's front row).
+const depth = (o) => (o.side === 'enemy' ? o.y - ROWS_PER_SIDE : ROWS_PER_SIDE - 1 - o.y);
+
 // Where a target will be standing: the cell it's stepping into, else its cell.
 const anchor = (t) => t.next ?? t.cell;
 
@@ -145,6 +151,9 @@ function bestCellInReach(f, target, reach, walk, claimed) {
   }
   return best;
 }
+
+// Specials that power up the fighter's next attack.
+const EMPOWER = new Set(['heavyBlow', 'cleave', 'pierce']);
 
 const round3 = (v) => Math.round(v * 1000) / 1000;
 
@@ -168,17 +177,79 @@ export function simulate(tuning, playerBoard, enemyBoard, seed, { record = true 
   const log = (ev) => record && events.push(ev);
   const snapshot = () => record && frames.push(fighters.map((f) => [round3(f.x), round3(f.y), Math.max(0, Math.round(f.hp))]));
 
-  function hit(attacker, target, amount, t) {
+  function hit(attacker, target, amount, t, special = false) {
     let dmg = amount * (1 + (rng() * 2 - 1) * c.damageVariance);
-    if (target.shieldUntil > t) dmg *= target.special.damageTaken;
+    if (target.shieldUntil > t) {
+      const full = Math.round(dmg);
+      dmg *= target.special.damageTaken;
+      target.blocked += full - Math.round(dmg);
+    }
     dmg = Math.round(dmg);
     target.hp -= dmg;
     attacker.damageDealt += dmg;
-    log({ t: round3(t), type: 'hit', from: attacker.id, to: target.id, amount: dmg });
+    if (special) attacker.specialDamage += dmg;
+    log({ t: round3(t), type: 'hit', from: attacker.id, to: target.id, amount: dmg, ...(special && { special: true }) });
     if (target.hp <= 0 && target.alive) {
       target.alive = false;
       log({ t: round3(t), type: 'death', id: target.id });
     }
+  }
+
+  const foes = (f) => fighters.filter((o) => o.alive && o.side !== f.side);
+  const within = (f, center, radius) => foes(f).filter((o) => o !== center && dist(o, center) <= radius + 1e-9);
+
+  // Everyone a special hits besides the main target.
+  function extraVictims(f, target) {
+    const sp = f.special;
+    if (sp.kind === 'cleave' || sp.kind === 'areaBlast') return within(f, target, sp.radius);
+    if (sp.kind === 'pierce') {
+      // The arrow flies on through the target: every enemy within half a cell of its line, beyond the Ranger.
+      const d = dist(f, target);
+      const ux = (target.x - f.x) / d;
+      const uy = (target.y - f.y) / d;
+      return foes(f).filter((o) => {
+        if (o === target) return false;
+        const along = (o.x - f.x) * ux + (o.y - f.y) * uy;
+        const off = Math.abs((o.x - f.x) * uy - (o.y - f.y) * ux);
+        return along > 0 && off <= 0.5;
+      });
+    }
+    return [];
+  }
+
+  // Shadow Leap: jump next to the enemy standing furthest back (nearest one if tied),
+  // on the free cell behind it if possible. Returns false if there's nowhere to land.
+  function leap(f, t) {
+    const { blocked } = occupancy(f, fighters);
+    const reach = f.range + c.meleeReach;
+    const targets = foes(f).sort((a, b) => depth(b) - depth(a) || dist(f, a) - dist(f, b) || a.id - b.id);
+    for (const e of targets) {
+      const a = anchor(e);
+      let best = null;
+      let bestScore = -Infinity;
+      for (let i = 0; i < CELLS; i++) {
+        if (blocked[i]) continue;
+        const x = i % COLS;
+        const y = (i - x) / COLS;
+        const dE = Math.hypot(x - a.x, y - a.y);
+        if (dE > reach + 1e-9) continue;
+        // Prefer behind the target (deeper on its side), then right next to it.
+        const behind = e.side === 'enemy' ? y - a.y : a.y - y;
+        const score = behind * 10 - dE;
+        if (score > bestScore + 1e-9) { bestScore = score; best = { x, y }; }
+      }
+      if (!best) continue;
+      const from = [round3(f.x), round3(f.y)];
+      f.x = best.x;
+      f.y = best.y;
+      f.cell = best;
+      f.next = null;
+      f.goal = best;
+      f.target = e;
+      log({ t: round3(t), type: 'special', id: f.id, name: f.special.name, kind: 'leap', from, to: [best.x, best.y], target: e.id });
+      return true;
+    }
+    return false;
   }
 
   const sideAlive = (side) => fighters.some((f) => f.alive && f.side === side);
@@ -190,13 +261,22 @@ export function simulate(tuning, playerBoard, enemyBoard, seed, { record = true 
     for (const f of fighters) {
       if (!f.alive) continue;
 
-      // Special on its cooldown.
-      f.specialTimer -= dt;
-      if (f.specialTimer <= 0) {
-        f.specialTimer += f.special.cooldown;
-        if (f.special.kind === 'shieldWall') f.shieldUntil = t + f.special.duration;
-        if (f.special.kind === 'heavyBlow') f.empowered = true;
-        log({ t: round3(t), type: 'special', id: f.id, name: f.special.name });
+      // Special on its cooldown. Shield Wall goes up at once; Heavy Blow, Backstab,
+      // Cleave and Piercing Arrow power up the next attack; Shadow Leap waits until the
+      // Rogue is standing on a cell; Fireball and Bone Burst wait for a target in reach.
+      const sp = f.special;
+      if (sp.built && f.specialTimer > 0) f.specialTimer -= dt;
+      if (sp.built && f.specialTimer <= 0) {
+        if (sp.kind === 'shieldWall') {
+          f.specialTimer += sp.cooldown;
+          f.shieldUntil = t + sp.duration;
+          f.casts += 1;
+          log({ t: round3(t), type: 'special', id: f.id, name: sp.name, kind: 'shield', until: round3(t + sp.duration) });
+        } else if (EMPOWER.has(sp.kind)) {
+          if (!f.empowered) { f.specialTimer += sp.cooldown; f.empowered = true; }
+        } else if (sp.kind === 'leapBackline') {
+          if (!f.next && leap(f, t)) { f.specialTimer = sp.cooldown; f.casts += 1; }
+        }
       }
 
       const reach = f.range + c.meleeReach;
@@ -244,13 +324,32 @@ export function simulate(tuning, playerBoard, enemyBoard, seed, { record = true 
         continue;
       }
       f.goal = f.cell;
+
+      // Fireball / Bone Burst: blast the target and everyone around it.
+      if (sp.built && sp.kind === 'areaBlast' && f.specialTimer <= 0) {
+        f.specialTimer = sp.cooldown;
+        f.casts += 1;
+        const victims = [target, ...extraVictims(f, target)];
+        log({ t: round3(t), type: 'special', id: f.id, name: sp.name, kind: 'blast', at: [round3(target.x), round3(target.y)], radius: sp.radius, to: victims.map((v) => v.id) });
+        for (const v of victims) hit(f, v, sp.damage, t, true);
+        if (!target.alive) continue;
+      }
+
       f.attackTimer -= dt;
       if (f.attackTimer <= 0) {
         f.attackTimer += f.attackInterval;
-        let amount = f.damage;
-        if (f.empowered) { amount *= f.special.multiplier; f.empowered = false; }
         log({ t: round3(t), type: 'attack', id: f.id, to: target.id });
-        hit(f, target, amount, t);
+        if (f.empowered) {
+          // Heavy Blow / Backstab / Cleave / Piercing Arrow: this swing is the special.
+          f.empowered = false;
+          f.casts += 1;
+          const victims = [target, ...extraVictims(f, target)];
+          const kind = { heavyBlow: 'blow', cleave: 'cleave', pierce: 'pierce' }[sp.kind];
+          log({ t: round3(t), type: 'special', id: f.id, name: sp.name, kind, to: victims.map((v) => v.id) });
+          for (const v of victims) hit(f, v, f.damage * sp.multiplier, t, true);
+        } else {
+          hit(f, target, f.damage, t);
+        }
       }
     }
     snapshot();
@@ -264,7 +363,7 @@ export function simulate(tuning, playerBoard, enemyBoard, seed, { record = true 
     duration: round3(tick * dt),
     timedOut,
     dt,
-    units: fighters.map((f) => ({ id: f.id, side: f.side, unit: f.unit, star: f.star, maxHp: f.maxHp, damageDealt: f.damageDealt })),
+    units: fighters.map((f) => ({ id: f.id, side: f.side, unit: f.unit, star: f.star, maxHp: f.maxHp, damageDealt: f.damageDealt, casts: f.casts, specialDamage: f.specialDamage, blocked: f.blocked })),
     survivors: fighters.filter((f) => f.alive).map((f) => ({ id: f.id, unit: f.unit, hp: Math.round(f.hp) })),
     events,
     frames,

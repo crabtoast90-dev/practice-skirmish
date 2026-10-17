@@ -93,6 +93,7 @@ function spacingCheck() {
   const durations = [];
   let timeouts = 0;
   let nondeterministic = null;
+  const specials = {}; // unit key -> { copies, casts, damage, blocked, dealt }
   for (let i = 0; i < SPACING_FIGHTS; i++) {
     const p = randomBoard(rng, playerKeys);
     const e = randomBoard(rng, enemyKeys);
@@ -101,6 +102,14 @@ function spacingCheck() {
     if (i < 50 && JSON.stringify(r) !== JSON.stringify(simulate(TUNING, p, e, seed))) nondeterministic = seed;
     durations.push(r.duration);
     if (r.timedOut) timeouts++;
+    for (const u of r.units) {
+      const sp = (specials[u.unit] ??= { copies: 0, casts: 0, damage: 0, blocked: 0, dealt: 0 });
+      sp.copies += 1;
+      sp.casts += u.casts;
+      sp.damage += u.specialDamage;
+      sp.blocked += u.blocked;
+      sp.dealt += u.damageDealt;
+    }
     let fightClosest = Infinity;
     for (const fr of r.frames) {
       for (let a = 0; a < fr.length; a++) {
@@ -115,7 +124,7 @@ function spacingCheck() {
     if (fightClosest < MIN_SPACING) tooClose++;
     if (fightClosest < closest) { closest = fightClosest; worst = seed; }
   }
-  return { n: SPACING_FIGHTS, nondeterministic, closest, worst, tooClose, ok: tooClose === 0, avg: mean(durations), timeouts };
+  return { n: SPACING_FIGHTS, specials, nondeterministic, closest, worst, tooClose, ok: tooClose === 0, avg: mean(durations), timeouts };
 }
 
 const matchups = [
@@ -142,6 +151,27 @@ if (base.winRate > tg.unitWinRate[1] || base.winRate < tg.unitWinRate[0]) {
   flags.push(`In the straight 1-star duel the Knight wins ${pct(base.winRate)} — outside the ${pct(tg.unitWinRate[0])}-${pct(tg.unitWinRate[1])} band. This is one duel, not a mixed-board win rate, so treat it as a hint, not a verdict.`);
 }
 if (!spacing.ok) flags.push(`MINIS OVERLAP: in ${spacing.tooClose} of ${spacing.n} random 5v5 fights two living minis came closer than ${MIN_SPACING} cells (closest ${spacing.closest.toFixed(2)}, seed ${spacing.worst}).`);
+const allUnits = { ...TUNING.units, ...TUNING.enemies };
+const specialRows = Object.entries(allUnits).map(([k, u]) => {
+  const st = spacing.specials[k] ?? { copies: 0, casts: 0, damage: 0, blocked: 0, dealt: 0 };
+  const sp = u.special;
+  const perFight = st.casts / (st.copies || 1);
+  let effect;
+  if (sp.kind === 'none') effect = 'no special (fodder)';
+  else if (!sp.built) effect = 'not built';
+  else if (sp.kind === 'shieldWall') effect = `blocks ${Math.round(st.blocked / (st.casts || 1))} damage per cast (takes ${pct(sp.damageTaken)} damage for ${sp.duration} s)`;
+  else if (sp.kind === 'leapBackline') effect = `jumps beside the enemy furthest back; the Rogue then deals ${Math.round(st.dealt / (st.copies || 1))} damage per fight`;
+  else {
+    const what = { heavyBlow: `next hit x${sp.multiplier}`, cleave: `next hit x${sp.multiplier} on the target and everyone within ${sp.radius} cell of it`, pierce: `next hit x${sp.multiplier} on everyone in the arrow's line`, areaBlast: `${sp.damage} damage to the target and everyone within ${sp.radius} cell of it` }[sp.kind];
+    effect = `${Math.round(st.damage / (st.casts || 1))} damage per cast (${what})`;
+  }
+  return { k, u, sp, st, perFight, effect };
+});
+for (const r of specialRows) {
+  if (r.sp.kind === 'none') continue;
+  if (!r.sp.built) flags.push(`${r.u.name}'s ${r.sp.name} isn't built in the sim yet.`);
+  else if (r.perFight < 1) flags.push(`${r.u.name}'s ${r.sp.name} goes off only ${r.perFight.toFixed(2)} times per fight on average (wanted at least 1).`);
+}
 if (spacing.timeouts) flags.push(`${spacing.timeouts} of ${spacing.n} random 5v5 fights timed out at ${TUNING.combat.timeoutSeconds} s (random boards, so a hint only).`);
 if (!det.ok) flags.push(`DETERMINISM BROKEN: seed ${det.seed} gave two different results. Nothing else in this file can be trusted until that's fixed.`);
 
@@ -205,6 +235,14 @@ const md = [
     return `- ${u.name}: ${u.hp} HP, ${u.damage} damage, ${u.attackSpeed} attacks/s (${Math.round(u.damage * u.attackSpeed)} damage per second), range ${u.range}, moves ${u.moveSpeed} cells/s. Special: ${s.name} every ${s.cooldown} s (${extra}).`;
   }),
   '',
+  '## Special check',
+  '',
+  `From the ${spacing.n} random 5v5 fights (any units, any cells, 1 in 5 a 2-star). "Per fight" is per copy of that unit on the board. Damage counts what landed, after Shield Wall.`,
+  '',
+  '| unit | special | cooldown | goes off per fight | effect |',
+  '| --- | --- | --- | --- | --- |',
+  ...specialRows.map((r) => `| ${r.u.name} | ${r.sp.name} | ${r.sp.kind === 'none' ? '-' : `${r.sp.cooldown} s${r.sp.firstAt ? ` (first at ${r.sp.firstAt * r.sp.cooldown} s)` : ''}`} | ${r.sp.kind === 'none' ? '-' : r.perFight.toFixed(2)} | ${r.effect} |`),
+  '',
   '## Shop',
   '',
   `${SHOP_ROLLS} rolls of ${eco.offersPerRound} offers per round from \`src/game/shop.js\`. "Shows up" = at least one copy in a fresh roll; "a pair" = two of the same unit in one roll (buy both for an instant 2-star). Reroll costs ${eco.rerollCost} gold.`,
@@ -224,15 +262,15 @@ const md = [
   '',
   '## Not measured yet',
   '',
-  '- Win rate per unit in mixed boards, per 2-unit pair, and per round: these need the other units\' specials and a set of "reasonable player boards" (PLAN.md, items A2-A3).',
-  `- Specials not built in the sim yet: ${Object.values({ ...TUNING.units, ...TUNING.enemies }).filter((u) => !u.special.built).map((u) => `${u.name} (${u.special.name})`).join(', ')}.`,
+  '- Win rate per unit in mixed boards, per 2-unit pair, and per round: these need a set of "reasonable player boards" (PLAN.md, item A3).',
+  `- Specials not built in the sim yet: ${Object.values(allUnits).filter((u) => !u.special.built && u.special.kind !== 'none').map((u) => `${u.name} (${u.special.name})`).join(', ') || 'none'}.`,
   '',
   '## Sim health',
   '',
   spacing.ok
     ? `- Spacing: in ${spacing.n} random 5v5 fights no two living minis ever came closer than ${MIN_SPACING} cells (closest ${spacing.closest.toFixed(2)} cells). Passes.`
     : `- Spacing FAILS: ${spacing.tooClose} of ${spacing.n} random 5v5 fights had two living minis closer than ${MIN_SPACING} cells (closest ${spacing.closest.toFixed(2)}, seed ${spacing.worst}).`,
-  `- Random 5v5 fights (specials not all built yet, so lengths will move): average ${sec(spacing.avg)}, ${spacing.timeouts} timeouts.`,
+  `- Random 5v5 fights: average ${sec(spacing.avg)}, ${spacing.timeouts} timeouts.`,
   det.ok ? `- Deterministic: ${det.count} sampled 1v1 fights and 50 random 5v5 fights replayed twice gave identical results.` : `- NOT deterministic (seed ${det.seed}).`,
   '',
 ].join('\n');

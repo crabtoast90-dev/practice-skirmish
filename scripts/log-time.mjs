@@ -12,6 +12,8 @@
 //   npm run log-time -- --row="A1 spacing and targeting"      record this session from its local transcript
 //   npm run log-time -- --row="0 setup" --events=dump.txt     record from saved list_events (kinds: result) output
 //   npm run log-time                                          just recompute LOG.md
+// One session that worked on several items: add --since=<ISO time> / --until=<ISO time>
+// (the prompt that started each item) so each row gets only its own turns.
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -93,12 +95,17 @@ const row = arg('row');
 if (row) {
   const events = arg('events');
   const turns = events ? turnsFromEvents(events.split(',')) : turnsFromTranscript(arg('transcript') ?? newestTranscript());
+  const since = arg('since') ? Date.parse(arg('since')) : -Infinity;
+  const until = arg('until') ? Date.parse(arg('until')) : Infinity;
   if (!turns.length) throw new Error('no turns found');
-  const { claude, user } = intervalsFromTurns(turns);
+  // A reply gap belongs to the item of the prompt it ends in.
+  const all = intervalsFromTurns(turns);
+  const claude = all.claude.filter(([a]) => a >= since && a < until);
+  const user = all.user.filter(([, b]) => b >= since && b < until);
   mkdirSync(DIR, { recursive: true });
   const rec = { row, session: arg('session') ?? null, claude: claude.map((i) => i.map(iso)), user: user.map((i) => i.map(iso)) };
   writeFileSync(join(DIR, `${slug(row)}.json`), JSON.stringify(rec, null, 1) + '\n');
-  console.log(`Recorded ${turns.length} turns for "${row}"`);
+  console.log(`Recorded ${claude.length} turns for "${row}"`);
 }
 
 // Recompute. Sweep every moment across all sessions; each moment counts once.

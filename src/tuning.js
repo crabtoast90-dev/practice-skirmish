@@ -17,7 +17,7 @@ export const TUNING = {
 
   // Player units: the five KayKit Adventurers.
   // range 1 = melee. attackSpeed = attacks per second. moveSpeed = cells per second.
-  // built: false = the special is defined here but not in the sim yet (see PLAN.md).
+  // built: false = the special is defined here but not in the sim yet. kind 'none' = no special.
   units: {
     knight: {
       name: 'Knight', role: 'tank', cost: 2,
@@ -27,22 +27,22 @@ export const TUNING = {
     barbarian: {
       name: 'Barbarian', role: 'melee bruiser', cost: 2,
       hp: 750, damage: 70, attackSpeed: 0.9, range: 1, moveSpeed: 1.6,
-      special: { name: 'Cleave', kind: 'cleave', built: false, cooldown: 6, multiplier: 1.5, radius: 1 },
+      special: { name: 'Cleave', kind: 'cleave', built: true, cooldown: 6, multiplier: 1.5, radius: 1 },
     },
     rogue: {
       name: 'Rogue', role: 'backline diver', cost: 3,
       hp: 550, damage: 60, attackSpeed: 1.2, range: 1, moveSpeed: 2.2,
-      special: { name: 'Shadow Leap', kind: 'leapBackline', built: false, cooldown: 7, firstAt: 0.5 },
+      special: { name: 'Shadow Leap', kind: 'leapBackline', built: true, cooldown: 7, firstAt: 0.5 },
     },
     mage: {
       name: 'Mage', role: 'area damage', cost: 3,
       hp: 450, damage: 40, attackSpeed: 0.7, range: 3, moveSpeed: 1.3,
-      special: { name: 'Fireball', kind: 'areaBlast', built: false, cooldown: 7, damage: 160, radius: 1 },
+      special: { name: 'Fireball', kind: 'areaBlast', built: true, cooldown: 7, damage: 160, radius: 1 },
     },
     ranger: {
       name: 'Ranger', role: 'long range', cost: 2,
       hp: 500, damage: 55, attackSpeed: 0.9, range: 4, moveSpeed: 1.4,
-      special: { name: 'Piercing Arrow', kind: 'pierce', built: false, cooldown: 6, multiplier: 2 },
+      special: { name: 'Piercing Arrow', kind: 'pierce', built: true, cooldown: 6, multiplier: 2 },
     },
   },
 
@@ -56,12 +56,12 @@ export const TUNING = {
     skeletonRogue: {
       name: 'Skeleton Rogue', role: 'fast melee', cost: 0,
       hp: 450, damage: 45, attackSpeed: 1.2, range: 1, moveSpeed: 2.0,
-      special: { name: 'Backstab', kind: 'heavyBlow', built: false, cooldown: 5, multiplier: 2 },
+      special: { name: 'Backstab', kind: 'heavyBlow', built: true, cooldown: 5, multiplier: 2 },
     },
     skeletonMage: {
       name: 'Skeleton Mage', role: 'ranged caster', cost: 0,
       hp: 400, damage: 40, attackSpeed: 0.7, range: 3, moveSpeed: 1.2,
-      special: { name: 'Bone Burst', kind: 'areaBlast', built: false, cooldown: 8, damage: 120, radius: 1 },
+      special: { name: 'Bone Burst', kind: 'areaBlast', built: true, cooldown: 8, damage: 120, radius: 1 },
     },
     skeletonMinion: {
       name: 'Skeleton Minion', role: 'fodder', cost: 0,
