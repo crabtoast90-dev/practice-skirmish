@@ -305,14 +305,22 @@ async function spreadRun(page, name, click) {
 // Candidate boards (2-star heroes, so the Knight lives to raise Shield Wall); the check
 // plays the first one where, simulated in Node with the coming fight's seed, all six specials fire.
 const S2 = (unit, row, col) => ({ unit, row, col, star: 2 });
-const FX_BOARDS = [
-  [[S2('knight', 0, 2), S2('barbarian', 0, 3), S2('rogue', 1, 1), S2('mage', 2, 1), S2('ranger', 2, 3)],
-    [{ unit: 'skeletonWarrior', row: 0, col: 2 }, { unit: 'skeletonMinion', row: 0, col: 1 }, { unit: 'skeletonMinion', row: 0, col: 3 }, { unit: 'skeletonMage', row: 2, col: 1 }, { unit: 'skeletonMage', row: 2, col: 3 }]],
-  [[S2('knight', 0, 1), S2('barbarian', 0, 3), S2('rogue', 1, 2), S2('mage', 2, 1), S2('ranger', 2, 3)],
-    [{ unit: 'skeletonWarrior', row: 0, col: 2 }, { unit: 'skeletonMinion', row: 0, col: 1 }, { unit: 'skeletonMinion', row: 0, col: 3 }, { unit: 'skeletonMage', row: 2, col: 1 }, { unit: 'skeletonMage', row: 2, col: 3 }]],
-  [[S2('knight', 0, 1), S2('barbarian', 0, 3), S2('rogue', 1, 2), S2('mage', 2, 1), S2('ranger', 2, 3)],
-    [{ unit: 'skeletonWarrior', row: 0, col: 1 }, { unit: 'skeletonWarrior', row: 0, col: 3 }, { unit: 'skeletonMinion', row: 0, col: 2 }, { unit: 'skeletonMage', row: 2, col: 1 }, { unit: 'skeletonMage', row: 2, col: 3 }]],
+const E1 = (unit, row, col) => ({ unit, row, col });
+const FX_PLAYERS = [
+  [S2('knight', 2, 4), S2('barbarian', 0, 1), S2('rogue', 1, 2), S2('mage', 2, 1), S2('ranger', 2, 2)],
+  [S2('knight', 0, 1), S2('barbarian', 0, 3), S2('rogue', 1, 2), S2('mage', 2, 1), S2('ranger', 2, 3)],
+  [S2('knight', 0, 2), S2('barbarian', 0, 3), S2('rogue', 1, 1), S2('mage', 2, 1), S2('ranger', 2, 3)],
+  [S2('knight', 1, 2), S2('barbarian', 0, 2), S2('rogue', 1, 1), S2('mage', 2, 1), S2('ranger', 2, 3)],
+  [S2('knight', 2, 0), S2('barbarian', 0, 2), S2('rogue', 1, 1), S2('mage', 2, 2), S2('ranger', 2, 4)],
 ];
+const FX_ENEMIES = [
+  [E1('skeletonMinion', 0, 1), E1('skeletonMinion', 0, 2), E1('skeletonMinion', 0, 3), E1('skeletonMage', 2, 1), E1('skeletonWarrior', 1, 3)],
+  [E1('skeletonMinion', 0, 1), E1('skeletonMinion', 0, 3), E1('skeletonMinion', 1, 2), E1('skeletonMage', 2, 1), E1('skeletonMage', 2, 3)],
+  [E1('skeletonWarrior', 0, 2), E1('skeletonMinion', 0, 1), E1('skeletonMinion', 0, 3), E1('skeletonMage', 2, 1), E1('skeletonMage', 2, 3)],
+  [E1('skeletonMinion', 0, 1), E1('skeletonMinion', 0, 3), E1('skeletonMage', 2, 2), E1('skeletonWarrior', 0, 2)],
+  [E1('skeletonMinion', 0, 0), E1('skeletonMinion', 0, 1), E1('skeletonMinion', 0, 2), E1('skeletonMinion', 0, 3), E1('skeletonMinion', 0, 4), E1('skeletonMage', 2, 2)],
+];
+const FX_BOARDS = FX_ENEMIES.flatMap((e) => FX_PLAYERS.map((p) => [p, e]));
 function fxBoard(seed) {
   const fires = ([p, e]) => {
     const r = simulate(TUNING, p, e, seed);
