@@ -15,3 +15,5 @@ One dated line per decision the user makes.
 - 2026-10-17: "Retry pays income again" is void: there are no retries any more, so each round pays its income once.
 - 2026-10-17: No board-size cap beyond the 15 cells of your half. Round 5 difficulty must come from tuning (A4), not a unit limit.
 - 2026-10-17: Victory = finishing round 5 with at least one life left (win or lose round 5). Losing any round costs a life and moves you on; Defeat at 0 lives.
+- 2026-10-17: A4 tuning: all four skeletons +50% HP, damage, attack speed and special damage (Bone Burst 120 → 180); range, move speed and cooldowns unchanged.
+- 2026-10-17: A4 tuning: Mage +30% HP, damage, attack speed and Fireball damage (450 HP, 40 dmg, 0.7/s, 160 → 585, 52, 0.91/s, 208); range, move speed and cooldown unchanged.

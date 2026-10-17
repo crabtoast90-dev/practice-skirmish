@@ -36,8 +36,8 @@ export const TUNING = {
     },
     mage: {
       name: 'Mage', role: 'area damage', cost: 3,
-      hp: 450, damage: 40, attackSpeed: 0.7, range: 3, moveSpeed: 1.3,
-      special: { name: 'Fireball', kind: 'areaBlast', built: true, cooldown: 7, damage: 160, radius: 1 },
+      hp: 585, damage: 52, attackSpeed: 0.91, range: 3, moveSpeed: 1.3,
+      special: { name: 'Fireball', kind: 'areaBlast', built: true, cooldown: 7, damage: 208, radius: 1 },
     },
     ranger: {
       name: 'Ranger', role: 'long range', cost: 2,
@@ -50,22 +50,22 @@ export const TUNING = {
   enemies: {
     skeletonWarrior: {
       name: 'Skeleton Warrior', role: 'melee', cost: 0,
-      hp: 750, damage: 45, attackSpeed: 0.9, range: 1, moveSpeed: 1.5,
+      hp: 1125, damage: 67.5, attackSpeed: 1.35, range: 1, moveSpeed: 1.5,
       special: { name: 'Heavy Blow', kind: 'heavyBlow', built: true, cooldown: 6, multiplier: 2.5 },
     },
     skeletonRogue: {
       name: 'Skeleton Rogue', role: 'fast melee', cost: 0,
-      hp: 450, damage: 45, attackSpeed: 1.2, range: 1, moveSpeed: 2.0,
+      hp: 675, damage: 67.5, attackSpeed: 1.8, range: 1, moveSpeed: 2.0,
       special: { name: 'Backstab', kind: 'heavyBlow', built: true, cooldown: 5, multiplier: 2 },
     },
     skeletonMage: {
       name: 'Skeleton Mage', role: 'ranged caster', cost: 0,
-      hp: 400, damage: 40, attackSpeed: 0.7, range: 3, moveSpeed: 1.2,
-      special: { name: 'Bone Burst', kind: 'areaBlast', built: true, cooldown: 8, damage: 120, radius: 1 },
+      hp: 600, damage: 60, attackSpeed: 1.05, range: 3, moveSpeed: 1.2,
+      special: { name: 'Bone Burst', kind: 'areaBlast', built: true, cooldown: 8, damage: 180, radius: 1 },
     },
     skeletonMinion: {
       name: 'Skeleton Minion', role: 'fodder', cost: 0,
-      hp: 300, damage: 25, attackSpeed: 1.0, range: 1, moveSpeed: 1.6,
+      hp: 450, damage: 37.5, attackSpeed: 1.5, range: 1, moveSpeed: 1.6,
       special: { name: 'Rattle', kind: 'none', built: false, cooldown: 99 },
     },
   },
