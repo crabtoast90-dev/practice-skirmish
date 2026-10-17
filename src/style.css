@@ -1,0 +1,14 @@
+html, body { margin: 0; height: 100%; overflow: hidden; background: #140d08; touch-action: none; user-select: none; -webkit-user-select: none; }
+canvas#game { display: block; width: 100vw; height: 100vh; height: 100dvh; }
+#title { position: fixed; top: max(14px, env(safe-area-inset-top)); left: 0; right: 0; text-align: center; pointer-events: none;
+  color: #ffe2b0; font: 600 clamp(1.1rem, 4.5vw, 1.7rem) Georgia, serif; letter-spacing: .14em; text-transform: uppercase; text-shadow: 0 2px 12px rgba(0,0,0,.7); }
+#banner { position: fixed; top: 38%; left: 50%; transform: translate(-50%, -50%); padding: .6rem 1.6rem; border-radius: .6rem; pointer-events: none;
+  background: rgba(20,12,6,.72); border: 1px solid rgba(255,210,150,.45); color: #fff1d6; font: 600 clamp(1.4rem, 6vw, 2.4rem) Georgia, serif; letter-spacing: .06em; text-align: center; }
+#banner small { display: block; font-size: .45em; font-weight: 400; opacity: .8; margin-top: .25rem; letter-spacing: .02em; }
+#bar { position: fixed; left: 0; right: 0; bottom: max(26px, calc(env(safe-area-inset-bottom) + 12px)); display: flex; justify-content: center; gap: .8rem; }
+#bar button { min-width: 9rem; padding: .75rem 1.6rem; border-radius: 2rem; border: 1px solid rgba(255,214,160,.7); cursor: pointer;
+  background: linear-gradient(#8a5530, #5c3519); color: #fff1d6; font: 600 1.15rem Georgia, serif; letter-spacing: .08em; box-shadow: 0 4px 18px rgba(0,0,0,.5); }
+#bar button:disabled { opacity: .5; cursor: default; }
+#credits { position: fixed; right: 10px; bottom: 6px; color: rgba(255,226,176,.45); font: .7rem Georgia, serif; pointer-events: none; }
+#fps { position: fixed; top: 8px; left: 8px; padding: 4px 8px; background: rgba(0,0,0,.6); color: #9f9; font: 12px monospace; white-space: pre; pointer-events: none; }
+[hidden] { display: none !important; }
