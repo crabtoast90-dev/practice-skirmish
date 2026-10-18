@@ -14,6 +14,7 @@ import { botShop } from '../src/game/bot.js';
 const RUNS = 'check-output';
 const KEEP = 5;
 const OUT = join(RUNS, new Date().toISOString().replace(/[:.]/g, '-')); // one folder per run
+const LOOKS_ONLY = process.argv.includes('--looks'); // only the lit vs painted look runs (quick)
 const URL_ARG = process.argv.find((a) => a.startsWith('--url='))?.slice(6); // check a deployed build instead
 
 // Browser: CHROME_PATH, else the cloud's preinstalled Chromium, else Playwright's own.
@@ -62,7 +63,7 @@ function shopSeed() {
 const SEED = shopSeed();
 const summariesGold = {}; // gold left after the first shop, per run
 
-async function run(name, contextOptions, script, seed = SEED) {
+async function run(name, contextOptions, script, seed = SEED, query = {}) {
   const context = await browser.newContext(contextOptions);
   const page = await context.newPage();
   page.on('console', (msg) => {
@@ -85,9 +86,10 @@ async function run(name, contextOptions, script, seed = SEED) {
   const url = new URL(base);
   url.searchParams.set('test', '');
   url.searchParams.set('seed', seed);
+  for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
   await page.goto(url.href.replace('test=', 'test'));
   await page.waitForFunction(() => window.__game);
-  await page.waitForFunction(() => window.__game.state().screen === 'setup' && window.__game.state().propsLoaded, null, { timeout: 60000 });
+  await page.waitForFunction(() => window.__game.state().screen === 'setup' && window.__game.state().propsLoaded && window.__game.state().lookReady, null, { timeout: 60000 });
   await script(page, name);
   await context.close();
 }
@@ -490,6 +492,58 @@ async function wholeRun(page, name, click, tapAt, seed, style, enemy = null) {
   summaries.push(`[${tag}] ${fights} fights matched Node, rounds ${plan.phases.map((p) => `${p.after.round}${p.after.won ? 'W' : 'L'}`).join(' ')}; Play again starts round 1 with ${again.lives} lives`);
 }
 
+// Look experiment (?look=painted, src/view/painted.js): the same specials fight in
+// both looks, shot at the same moment (two specials on screen), plus the shop
+// framing and, on laptop, the low off-angle where a projected painting slides.
+const lookShotFiles = {};
+async function looksRun(page, name, click, look) {
+  const s0 = await state(page);
+  if (s0.look !== look) failures.push(`[${name}] asked for the ${look} look, got ${s0.look}`);
+  const [fxPlayer, fxEnemy] = fxBoard(s0.fightSeed === null ? s0.seed * 1000 : s0.fightSeed + 1);
+  await page.evaluate(([p, e]) => window.__game.setBoards(p, e), [fxPlayer, fxEnemy]);
+  await advance(page, 300);
+  const file = (k) => join(OUT, `${name}-${look}-${k}.png`);
+  await page.screenshot({ path: file('shop') });
+  await click('#fight');
+  let at = null;
+  for (let i = 0; i < 200; i++) {
+    const s = await advance(page, 100);
+    if (s.screen !== 'battle') break;
+    const specials = Object.keys(s.battle.effects).filter((k) => k in FX_SPECIALS && k !== 'blow');
+    if (specials.length >= 2 || (i >= 60 && specials.length)) { at = `${s.battle.t}s (${specials.map((k) => FX_SPECIALS[k]).join(' + ')})`; break; }
+  }
+  await page.screenshot({ path: file('fight') });
+  lookShotFiles[`${name}-${look}`] = { fight: file('fight'), at };
+  if (name === 'laptop') {
+    await page.evaluate(() => window.__game.setView('low'));
+    await page.screenshot({ path: file('low') });
+    await page.evaluate(() => window.__game.setView('game'));
+  }
+  const lookLine = (await page.evaluate(() => window.__game.stateText())).split('\n').find((l) => l.startsWith('look:'));
+  await finish(page);
+  summaries.push(`[${name}] ${look} look: fight shot at ${at ?? 'no specials on screen'}; ${lookLine}`);
+  matchNode(`${name} ${look} look`, await state(page));
+}
+
+// look-experiment/compare.png: lit vs painted, laptop and phone, mid-fight.
+async function composeLookCompare() {
+  const img = (f) => `data:image/png;base64,${readFileSync(f).toString('base64')}`;
+  const tile = (k, label) => `<figure><img src="${img(lookShotFiles[k].fight)}"><figcaption>${label} · ${lookShotFiles[k].at}</figcaption></figure>`;
+  const context = await browser.newContext({ viewport: { width: 2000, height: 400 } });
+  const page = await context.newPage();
+  await page.setContent(`<style>body{margin:0;background:#0b0d13;padding:8px;font:16px Georgia,serif;color:#ffe2b0}
+    .row{display:flex;gap:8px;margin-bottom:8px;align-items:flex-start}figure{margin:0}.laptop figure{flex:1}.phone figure{width:420px}
+    img{width:100%;display:block;border-radius:4px}figcaption{padding:4px 2px}</style>
+    <div class="row laptop">${tile('laptop-lit', 'Lit (laptop)')}${tile('laptop-painted', 'Painted (laptop)')}</div>
+    <div class="row phone">${tile('phone-lit', 'Lit (phone)')}${tile('phone-painted', 'Painted (phone)')}</div>`);
+  await page.waitForFunction(() => [...document.images].every((i) => i.complete));
+  mkdirSync('look-experiment', { recursive: true });
+  await page.screenshot({ path: join(OUT, 'compare.png'), fullPage: true });
+  copyFileSync(join(OUT, 'compare.png'), join('look-experiment', 'compare.png'));
+  await context.close();
+  summaries.push('look compare: look-experiment/compare.png (lit vs painted, laptop and phone, mid-fight)');
+}
+
 async function fullRun(page, name, click, tapAt) {
   await shopRun(page, name, click, tapAt);
   await fightRun(page, name, click);
@@ -505,14 +559,19 @@ const DEVICES = {
   phone: [{ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }, (page) => [(sel) => page.tap(sel), (x, y) => page.touchscreen.tap(x, y)]],
 };
 for (const [name, [opts, input]] of Object.entries(DEVICES)) {
-  await run(name, opts, (page) => fullRun(page, name, ...input(page)));
-  await run(name, opts, (page) => wholeRun(page, name, ...input(page), VICTORY_SEED, 'greedy', VICTORY_ENEMY), VICTORY_SEED);
-  await run(name, opts, (page) => wholeRun(page, name, ...input(page), DEFEAT_SEED, 'stingy'), DEFEAT_SEED);
+  if (!LOOKS_ONLY) {
+    await run(name, opts, (page) => fullRun(page, name, ...input(page)));
+    await run(name, opts, (page) => wholeRun(page, name, ...input(page), VICTORY_SEED, 'greedy', VICTORY_ENEMY), VICTORY_SEED);
+    await run(name, opts, (page) => wholeRun(page, name, ...input(page), DEFEAT_SEED, 'stingy'), DEFEAT_SEED);
+  }
+  for (const look of ['lit', 'painted']) await run(name, opts, (page) => looksRun(page, name, input(page)[0], look), SEED, { look });
 }
 
-for (const name of Object.keys(DEVICES)) if (!lostMovedOn[name]) failures.push(`[${name}] no whole run lost a round and moved on to the next`);
+for (const name of Object.keys(DEVICES)) if (!LOOKS_ONLY && !lostMovedOn[name]) failures.push(`[${name}] no whole run lost a round and moved on to the next`);
 if (lookFiles.game && lookFiles.phone) await composeLookSheet();
-else failures.push('look sheet: missing shots');
+else if (!LOOKS_ONLY) failures.push('look sheet: missing shots');
+if (Object.keys(lookShotFiles).length === 4) await composeLookCompare();
+else failures.push('look compare: missing shots');
 
 await browser.close();
 await server?.close();

@@ -58,6 +58,7 @@ export function createPost(renderer, scene, camera, { blur = 10 } = {}) {
     },
     setFocus(y) { h.uniforms.r.value = v.uniforms.r.value = y; },
     setBlur(px) { blur = px; setBlur(); },
+    setGrade(on) { grade.enabled = on; },
     render() { composer.render(); },
   };
 }

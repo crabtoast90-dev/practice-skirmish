@@ -267,6 +267,10 @@ export function createScene(quality) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(PALETTE.room);
   scene.fog = new THREE.Fog(PALETTE.room, 16, 34);
+  // Everything that never moves (table, board, lamp, mug), so the painted look
+  // can find it and the paint-over plates can render it without the minis.
+  const room = new THREE.Group();
+  scene.add(room);
 
   // Table: a big wooden plane that falls off into the dark room.
   const tableTex = plainWood(1024, PALETTE.table, PALETTE.tableGrain, 3, 260);
@@ -277,15 +281,15 @@ export function createScene(quality) {
   );
   table.rotation.x = -Math.PI / 2;
   table.receiveShadow = true;
-  scene.add(table);
+  room.add(table);
 
-  scene.add(createBoard());
+  room.add(createBoard());
 
   // The lamp: one warm spot from the lamp's bulb, low and to the left, so minis
   // cast long soft shadows across the board and the table falls off into the dark.
   const aim = new THREE.Vector3(0.4, 0, -0.5);
   const { lamp: lampModel, bulbPos } = createLamp(new THREE.Vector3(-6.7, 0, -2.6), new THREE.Vector3(-5.0, 3.3, -1.0), aim);
-  scene.add(lampModel);
+  room.add(lampModel);
   const lamp = new THREE.SpotLight(PALETTE.lamp, 170, 30, Math.PI / 3.1, 0.85, 1.5);
   lamp.position.copy(bulbPos);
   lamp.target.position.copy(aim);
@@ -310,7 +314,7 @@ export function createScene(quality) {
   scene.add(rim);
 
   // A mug of ale at the table's edge, for scale.
-  new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/props/mug_full.gltf`).then((g) => {
+  const propsReady = new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/props/mug_full.gltf`).then((g) => {
     const mug = g.scene;
     mug.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     const box = new THREE.Box3().setFromObject(mug);
@@ -318,9 +322,9 @@ export function createScene(quality) {
     mug.scale.setScalar(s);
     mug.position.set(BOARD_W / 2 + 1.3, -box.min.y * s, -1.6);
     mug.rotation.y = -0.6;
-    scene.add(mug);
+    room.add(mug);
     scene.userData.propsLoaded = true;
   });
 
-  return { scene, lamp, lampHead: bulbPos, boardSize: { w: BOARD_W, d: BOARD_D, h: BOARD_H + FRAME_LIP } };
+  return { scene, room, propsReady, lamp, lampHead: bulbPos, boardSize: { w: BOARD_W, d: BOARD_D, h: BOARD_H + FRAME_LIP } };
 }
