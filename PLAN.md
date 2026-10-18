@@ -48,8 +48,8 @@ Each item can be pasted alone into a fresh builder session. Every session reads 
 
 ## Ship
 
-- [ ] **E1. Playtest fixes.** After the user's playtest. One session per batch of notes; each note becomes a line here first.
+- [x] **E1. Playtest fixes.** (skipped 2026-10-18, user call: tested enough, no polish pass) After the user's playtest. One session per batch of notes; each note becomes a line here first.
   *Done when:* each note is ticked with a screenshot or a BALANCE.md line that shows the fix.
 
-- [ ] **E2. Release.** Last. Live-site check (`npm run check -- --url=https://crabtoast90-dev.github.io/practice-skirmish/`), README and CREDITS complete, LOG.md up to date, final `npm run sim`.
+- [x] **E2. Release.** (done 2026-10-18) Last. Live-site check (`npm run check -- --url=https://crabtoast90-dev.github.io/practice-skirmish/`), README and CREDITS complete, LOG.md up to date, final `npm run sim`.
   *Done when:* the live-site check passes and its screenshots are described in one line each.

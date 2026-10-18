@@ -21,3 +21,4 @@ One dated line per decision the user makes.
 - 2026-10-17: A4 tuning: all four skeletons -35% from the last setting (HP, damage, attack speed, Bone Burst damage; about 1.7x the original, rounded); range, move speed and cooldowns unchanged.
 - 2026-10-17: A4 tuning: all four skeletons +18% from the last setting (HP, damage, attack speed, Bone Burst damage; about 2.0x the original, rounded); range, move speed and cooldowns unchanged.
 - 2026-10-18: Tuning closed as it stands; Shield Wall rarely firing before a 1-star Knight dies is accepted, no change.
+- 2026-10-18: Skip E1 (playtest fixes): the user has tested enough and doesn't want a polish pass; go straight to E2 release.
