@@ -411,7 +411,7 @@ function findSeed(style, end, want = () => true, enemy) {
   }
   throw new Error(`no seed where the ${style} bot reaches ${end}`);
 }
-// Victory: prefer a run that loses a round on the way, to show the replay.
+// Victory: prefer a run that loses a round on the way, to show a loss moving you on.
 // If the tuning makes the real skeleton boards unbeatable for the bot, the shop
 // run and the Victory run fight one stand-in Minion every round instead, so round
 // results, "Next round" and the Victory screen are still checked (the summary says so).
@@ -425,6 +425,7 @@ try { VICTORY_SEED = findSeed('greedy', 'victory', (r) => r.phases.some((p) => !
   }
 }
 const DEFEAT_SEED = findSeed('stingy', 'defeat');
+const lostMovedOn = {}; // per device: lost rounds that moved straight on to the next one
 
 async function wholeRun(page, name, click, tapAt, seed, style, enemy = null) {
   const plan = botRun(seed, style, enemy);
@@ -456,8 +457,22 @@ async function wholeRun(page, name, click, tapAt, seed, style, enemy = null) {
     await shot(page, `${name}-${plan.end}`, `${fights}-round${n}-${want.won ? 'won' : 'lost'}`);
     if (want.phase === 'result') {
       expect(await page.isVisible('#banner'), `round ${n} result banner not visible`);
+      const banner = await page.textContent('#banner');
+      const button = await page.textContent('#fight');
+      const goldLeft = s.gold;
       await click('#fight');
       await advance(page, 300);
+      if (!want.won) {
+        // B3: a lost round costs a life and moves straight on to the next round, paying its income once.
+        const after = await state(page);
+        const gold = goldLeft + TUNING.economy.incomePerRound[n];
+        expect(banner.includes(`next: round ${n + 1}`) && button === 'Next round', `round ${n} lost: banner "${banner}", button "${button}" (want "next: round ${n + 1}" and "Next round")`);
+        expect(after.screen === 'setup' && after.round === n + 1 && after.lives === want.lives && after.gold === gold,
+          `round ${n} lost: expected round ${n + 1}'s shop with ${want.lives} lives and ${gold} gold, got ${after.screen} round ${after.round}, ${after.lives} lives, ${after.gold} gold`);
+        await shot(page, `${name}-${plan.end}`, `${fights}-round${n}-lost-moved-on`);
+        lostMovedOn[name] = (lostMovedOn[name] ?? 0) + 1;
+        summaries.push(`[${tag}] lost round ${n}: one life fewer (${want.lives} left), straight on to round ${n + 1}'s shop with ${goldLeft} + ${TUNING.economy.incomePerRound[n]} = ${after.gold} gold`);
+      }
     }
   }
   const s = await state(page);
@@ -495,6 +510,7 @@ for (const [name, [opts, input]] of Object.entries(DEVICES)) {
   await run(name, opts, (page) => wholeRun(page, name, ...input(page), DEFEAT_SEED, 'stingy'), DEFEAT_SEED);
 }
 
+for (const name of Object.keys(DEVICES)) if (!lostMovedOn[name]) failures.push(`[${name}] no whole run lost a round and moved on to the next`);
 if (lookFiles.game && lookFiles.phone) await composeLookSheet();
 else failures.push('look sheet: missing shots');
 

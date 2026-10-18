@@ -239,17 +239,18 @@ function showResult() {
   const left = `${r.lives} ${r.lives === 1 ? 'life' : 'lives'} left`;
   const n = last.round;
   if (screen === 'victory') {
-    banner.innerHTML = `Victory<small>All ${run.rounds} rounds cleared · ${left}</small>`;
+    const wins = r.history.filter((h) => h.won).length;
+    banner.innerHTML = `Victory<small>${wins === run.rounds ? `All ${run.rounds} rounds won` : `Survived all ${run.rounds} rounds, won ${wins}`} · ${left}</small>`;
   } else if (screen === 'defeat') {
     banner.innerHTML = `Defeat<small>Out of lives on round ${n}</small>`;
   } else if (last.won) {
     banner.innerHTML = `Round ${n} won<small>Cleared in ${last.duration.toFixed(1)} s · next: round ${n + 1}</small>`;
   } else {
-    banner.innerHTML = `Round ${n} lost<small>${last.winner === 'draw' ? 'Time ran out · ' : ''}−1 life, ${left}. Replay round ${n}</small>`;
+    banner.innerHTML = `Round ${n} lost<small>${last.winner === 'draw' ? 'Time ran out · ' : ''}−1 life, ${left} · next: round ${n + 1}</small>`;
   }
   banner.className = screen === 'result' ? (last.won ? 'won' : 'lost') : `end ${screen}`;
   banner.hidden = false;
-  fightBtn.textContent = screen === 'result' ? (last.won ? 'Next round' : 'Try again') : 'Play again';
+  fightBtn.textContent = screen === 'result' ? 'Next round' : 'Play again';
   fightBtn.disabled = false;
 }
 

@@ -2,10 +2,11 @@
 // No three.js, no DOM: the same seed and the same taps always play the same
 // run, so the sim can play whole runs headlessly.
 //
-// Flow: shop -> fight -> result -> (next round | same round again) -> ... ->
-// victory | defeat. Winning a round moves you on; losing one (a draw counts as
-// a loss) costs a life and you replay that round. Clear all rounds = Victory,
-// out of lives = Defeat. Every shop phase pays that round's income.
+// Flow: shop -> fight -> result -> next round -> ... -> victory | defeat.
+// Every round is fought once: losing one (a draw counts as a loss) costs a life
+// and the run moves on anyway. Finish the last round with a life left = Victory
+// (even if that round was lost); out of lives = Defeat. Each round's shop pays
+// its income once.
 import { simulate } from '../sim/battle.js';
 import { createShop } from './shop.js';
 
@@ -42,14 +43,14 @@ export function createRun(tuning, seed) {
       if (!won) s.lives -= 1;
       s.last = { round: s.round, won, winner: result.winner, duration: result.duration };
       s.history.push(s.last);
-      s.phase = s.lives <= 0 ? 'defeat' : won && s.round === rounds.length ? 'victory' : 'result';
+      s.phase = s.lives <= 0 ? 'defeat' : s.round === rounds.length ? 'victory' : 'result';
       return { ...result, boards: { player, enemy }, seed: fightSeed };
     },
 
-    // From a round result into the next shop: the next round if you won, the same one if not.
+    // From a round result into the next round's shop, won or lost.
     next() {
       if (s.phase !== 'result') return false;
-      if (s.last.won) s.round += 1;
+      s.round += 1;
       shop.startRound(s.round);
       s.phase = 'shop';
       return true;

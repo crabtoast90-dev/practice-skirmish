@@ -150,33 +150,31 @@ const tg = TUNING.targets;
 const RUNS = 1000;
 const runStats = (() => {
   const nRounds = TUNING.rounds.length;
-  const tries = Array(nRounds).fill(0);
-  const firstTry = Array(nRounds).fill(0);
+  const won = Array(nRounds).fill(0);
   const reached = Array(nRounds).fill(0);
+  const livesIn = Array(nRounds).fill(0); // lives on arrival, summed
   let victories = 0;
   let livesLeft = 0;
   let fights = 0;
   let units = 0;
   for (let seed = 1; seed <= RUNS; seed++) {
     const run = createRun(TUNING, seed);
-    const seen = new Set();
     while (run.state.phase === 'shop') {
-      const r = run.state.round;
-      if (!seen.has(r)) { seen.add(r); reached[r - 1] += 1; }
+      const r = run.state.round; // each round is fought once: a loss costs a life and moves on
+      reached[r - 1] += 1;
+      livesIn[r - 1] += run.state.lives;
       botShop(TUNING, run.shop);
-      const first = run.state.history.every((h) => h.round !== r);
       run.fight({ record: false });
-      tries[r - 1] += 1;
-      if (first && run.state.last.won) firstTry[r - 1] += 1;
+      if (run.state.last.won) won[r - 1] += 1;
       run.next();
     }
     fights += run.state.history.length;
     units += run.shop.state.board.length;
     if (run.state.phase === 'victory') { victories += 1; livesLeft += run.state.lives; }
   }
-  return { nRounds, tries, firstTry, reached, victory: victories / RUNS, livesLeft: livesLeft / (victories || 1), fights: fights / RUNS, units: units / RUNS };
+  return { nRounds, won, reached, livesIn, victory: victories / RUNS, livesLeft: livesLeft / (victories || 1), fights: fights / RUNS, units: units / RUNS };
 })();
-const firstTryRate = (i) => runStats.firstTry[i] / (runStats.reached[i] || 1);
+const roundWinRate = (i) => runStats.won[i] / (runStats.reached[i] || 1);
 
 // Reasonable player boards: thousands of sensible players shop through every
 // round with the real shop. Each round's board fights that round's skeletons
@@ -438,13 +436,13 @@ const md = [
   '',
   '## Whole runs',
   '',
-  `${RUNS} complete sittings played by the simple bot (buys merges first, then anything it can afford, rerolls spare gold, tanks in front, ranged behind). Lose a round = lose a life and replay it; clear all ${runStats.nRounds} = Victory; ${TUNING.economy.lives} lives.`,
+  `${RUNS} complete sittings played by the simple bot (buys merges first, then anything it can afford, rerolls spare gold, tanks in front, ranged behind). Every round is fought once: a loss costs a life and the run moves on; finish round ${runStats.nRounds} with a life left = Victory; ${TUNING.economy.lives} lives.`,
   '',
   `- Victory in **${pct(runStats.victory)}** of runs (with ${runStats.livesLeft.toFixed(1)} lives left on average when it wins); ${runStats.fights.toFixed(1)} fights per run; ${runStats.units.toFixed(1)} units on the board at the end.`,
   '',
-  '| round | runs that got there | cleared first try | fights played there |',
+  '| round | runs that got there | won there | lives on arrival (avg) |',
   '| --- | --- | --- | --- |',
-  ...TUNING.rounds.map((r, i) => `| ${r.name} | ${pct(runStats.reached[i] / RUNS)} | ${pct(firstTryRate(i))} | ${runStats.tries[i]} |`),
+  ...TUNING.rounds.map((r, i) => `| ${r.name} | ${pct(runStats.reached[i] / RUNS)} | ${pct(roundWinRate(i))} | ${(runStats.livesIn[i] / (runStats.reached[i] || 1)).toFixed(1)} |`),
   '',
   '## Shop',
   '',
@@ -461,8 +459,8 @@ const md = [
   `| fight length | ${tg.fightSeconds[0]}-${tg.fightSeconds[1]} s | ${sec(pveAvg)} vs skeletons, ${sec(h2hAvg)} head-to-head (reasonable boards) |`,
   `| unit win rate in mixed boards | ${pct(tg.unitWinRate[0])}-${pct(tg.unitWinRate[1])} | ${pct1(unitRows[unitRows.length - 1].h2h)} (${unitRows[unitRows.length - 1].name}) to ${pct1(unitRows[0].h2h)} (${unitRows[0].name}) head-to-head |`,
   `| no pair above | ${pct(tg.pairWinRateMax)} | best ${(() => { const p = pairRows.filter((q) => q.n >= PAIR_MIN).sort((x, y) => y.rate - x.rate)[0]; return `${p.name} ${pct(p.rate)}`; })()} |`,
-  `| reasonable board clears round 1 | ~${pct(tg.round1ClearRate)} | ${pct(r1.clear)} (simple bot: ${pct(firstTryRate(0))} first try) |`,
-  `| reasonable board clears round 5 | ~${pct(tg.round5ClearRate)} (+-${pct(tg.round5Tolerance)}) | ${pct(r5.clear)} (simple bot: ${pct(firstTryRate(runStats.nRounds - 1))} first try) |`,
+  `| reasonable board clears round 1 | ~${pct(tg.round1ClearRate)} | ${pct(r1.clear)} (simple bot: ${pct(roundWinRate(0))}) |`,
+  `| reasonable board clears round 5 | ~${pct(tg.round5ClearRate)} (+-${pct(tg.round5Tolerance)}) | ${pct(r5.clear)} (simple bot: ${pct(roundWinRate(runStats.nRounds - 1))}) |`,
   '',
   '## Sim health',
   '',
