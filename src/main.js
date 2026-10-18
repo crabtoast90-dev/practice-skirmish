@@ -9,10 +9,13 @@ import { globalRow } from './sim/battle.js';
 import { TUNING } from './tuning.js';
 import { createRun } from './game/run.js';
 import { createShopUI } from './view/shopUI.js';
+import { applyPaintedLook, cameraFromJSON, cameraToJSON } from './view/painted.js';
 
 const params = new URLSearchParams(location.search);
 const TEST = params.has('test');
 const phone = matchMedia('(pointer: coarse)').matches || Math.min(innerWidth, innerHeight) < 600;
+// ?look=painted: the projection paint-over experiment (src/view/painted.js). Lit is the default.
+const LOOK = params.get('look') === 'painted' ? 'painted' : 'lit';
 const quality = { pixelRatio: 2, shadowMap: phone ? 1024 : 2048 };
 
 // One sitting: five rounds against tuning.rounds' boards, three lives (src/game/run.js).
@@ -32,10 +35,16 @@ renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.35;
 
-const { scene, boardSize, lampHead } = createScene(quality);
+const { scene, room, propsReady, boardSize, lampHead } = createScene(quality);
 const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 80);
 const BLUR = phone ? 6 : 8;
 const post = createPost(renderer, scene, camera, { blur: BLUR });
+let painted = LOOK === 'painted' ? 'loading' : null; // then the painting's details, or 'failed'
+if (painted) {
+  applyPaintedLook({ room, propsReady, renderer, post, name: phone ? 'phone' : 'laptop' })
+    .then((r) => { painted = r; if (TEST) render(); })
+    .catch((e) => { painted = 'failed'; console.error(`painted look: ${e.message}`); });
+}
 
 // Camera views. 'game' is the play view; the others are for the look sheet.
 // elevation = degrees above the table, yaw = degrees round from the player's side.
@@ -290,6 +299,8 @@ function state() {
     screen,
     loaded,
     propsLoaded: !!scene.userData.propsLoaded,
+    look: LOOK,
+    lookReady: LOOK === 'lit' || (painted && typeof painted === 'object'),
     seed,
     fightSeed: fought.seed,
     round: run.state.round,
@@ -332,7 +343,7 @@ function stateText() {
     b ? `effects: on screen ${Object.entries(b.effects).map(([k, n]) => `${k}×${n}`).join(', ') || 'none'}; this fight ${Object.entries(b.effectsSeen).map(([k, n]) => `${k}×${n}`).join(', ') || 'none'}` : 'effects: none',
     s.sim ? `sim decided: ${s.sim.winner} in ${s.sim.duration}s` : 'sim decided: nothing yet',
     s.result ? `result: ${s.result.winner}, survivors ${s.result.survivors.map((x) => `${x.unit} ${x.hp}hp`).join(', ') || 'none'}` : 'result: none',
-    `look: view ${view}, camera fov ${camera.fov.toFixed(1)}, pixel ratio ${renderer.getPixelRatio()}, shadow map ${quality.shadowMap}, tilt-shift on, lamp at ${lampHead.toArray().map((n) => n.toFixed(1)).join(',')}`,
+    `look: ${LOOK}${painted ? ` (${typeof painted === 'object' ? `painting ${painted.painting} on ${painted.meshes} static meshes, grade off` : painted})` : ''}; view ${view}, camera fov ${camera.fov.toFixed(1)}, pixel ratio ${renderer.getPixelRatio()}, shadow map ${quality.shadowMap}, tilt-shift on, lamp at ${lampHead.toArray().map((n) => n.toFixed(1)).join(',')}`,
     `framing: board frame on screen x ${fmtB(frameBounds(), 'x')}, y ${fmtB(frameBounds(), 'y')} (-1..1; inside means no clipping)`,
   ].join('\n');
 }
@@ -380,6 +391,38 @@ window.__game = {
     playback.refresh();
     render();
     return state();
+  },
+  // Paint-over plates (scripts/paintover.mjs): the camera of the play view with the
+  // shop open, the widest framing the game uses, so the painting covers the fight view too.
+  plateCamera(aspect) {
+    placeCamera(frames.shop.target, VIEWS.game.elevation, VIEWS.game.yaw, frames.shop.d);
+    const json = cameraToJSON(camera, aspect);
+    applyView();
+    return json;
+  },
+  // Render only the room (no minis, no HUD, no tilt-shift) from a plate camera;
+  // clay swaps every surface for one plain grey material.
+  plate(json, { clay = false } = {}) {
+    for (const o of scene.children) o.visible = o === room || !!o.isLight;
+    document.body.classList.add('plate');
+    const cam = cameraFromJSON(json);
+    camera.position.copy(cam.position);
+    camera.quaternion.copy(cam.quaternion);
+    camera.fov = cam.fov;
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld();
+    post.setBlur(0);
+    // Clay keeps the field's inlay grooves (its bump map) so the grid survives.
+    room.traverse((o) => {
+      if (o.isSprite) o.visible = !clay;
+      if (!o.isMesh) return;
+      o.userData.litMaterial ??= o.material;
+      const clayOf = (m) => new THREE.MeshStandardMaterial({ color: 0xbdb5a8, roughness: 0.9, map: m.bumpMap ?? null });
+      o.material = !clay ? o.userData.litMaterial : Array.isArray(o.material) ? o.userData.litMaterial.map(clayOf) : clayOf(o.userData.litMaterial);
+    });
+    render();
+    return { aspect: camera.aspect, fov: camera.fov };
   },
   // Test clock: advance simulated time in fixed steps, then draw one frame.
   advance(ms) {

@@ -53,3 +53,4 @@ canvas#game { display: block; width: 100vw; height: 100vh; height: 100dvh; }
   #banner.end { top: 24%; }
 }
 button { -webkit-tap-highlight-color: transparent; }
+.plate > :not(canvas) { display: none !important; }
