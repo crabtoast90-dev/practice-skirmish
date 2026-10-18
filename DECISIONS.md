@@ -23,3 +23,4 @@ One dated line per decision the user makes.
 - 2026-10-18: Tuning closed as it stands; Shield Wall rarely firing before a 1-star Knight dies is accepted, no change.
 - 2026-10-18: Skip E1 (playtest fixes): the user has tested enough and doesn't want a polish pass; go straight to E2 release.
 - 2026-10-18: Projection paint-over trialed (look experiment, behind ?look=painted; lit stays the default). Result: painted definitely looks better, though not drastically: more detailed, same overall aesthetic. Lit stays the default for now.
+- 2026-10-18: Projection paint-over documented as a reusable look workflow for fixed-camera games (PAINTOVER.md).
